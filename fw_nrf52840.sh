@@ -1,0 +1,49 @@
+#!/bin/bash
+
+FLASH=false
+
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --bin)
+            BIN="$2"
+            shift 2
+            ;;
+        --name)
+            NAME="$2"
+            shift 2
+            ;;
+        --flash)
+            FLASH=true
+            shift
+            ;;
+        *)
+            echo "Unknown option: $1"
+            exit 1
+            ;;
+    esac
+done
+
+if [ -z "$BIN" ]; then
+    echo "BIN is not set. Please set it to the path of the binary to flash."
+    exit 1
+fi
+
+if [ -z "$NAME" ]; then
+    echo "NAME is not set. Please set it to the name of the application."
+    exit 1
+fi
+
+nrfutil nrf5sdk-tools pkg generate \
+    --hw-version 52 \
+    --sd-req 0x00 \
+    --application $BIN \
+    --application-version 1 \
+    $NAME.zip
+
+
+if [ -n "$FLASH" ]; then
+    echo "Flashing $NAME.zip to device..."
+    nrfutil nrf5sdk-tools dfu usb-serial -pkg $NAME.zip -p /dev/ttyACM0
+else
+    echo "Skipping flash."
+fi
