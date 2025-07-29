@@ -1,0 +1,50 @@
+#!/bin/bash
+# This script builds and runs a Zephyr test module using west.
+PRISTINE=false
+
+if [[ $# -eq 0 ]]; then
+    echo "Usage: test-module -n <test_name> [-b <build_dir>] [-p]"
+    return 1
+fi
+
+
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        -n)
+            NAME="$2"
+            shift 2
+            ;;
+        -b)
+            BUILD_DIR="$2"
+            shift 2
+            ;;
+        -p)
+            PRISTINE=true
+            shift
+            ;;
+        *)
+            echo "Unknown option: $1"
+            echo "Usage: test-module -n <test_name> [-b <build_dir>] [-p]"
+            return 1
+            ;;
+    esac
+done
+
+if [ -z "$BUILD_DIR" ]; then
+    BUILD_DIR="build_$NAME"
+fi
+
+if [ "$PRISTINE" = true ]; then
+    build=$(west build -b native_sim test/$NAME -d $BUILD_DIR --pristine )
+else
+    build=$(west build -b native_sim test/$NAME -d $BUILD_DIR )
+fi
+
+
+if [ $? -ne 0 ]; then
+    echo "Build failed."
+    return 1
+else
+    echo "Build successful. Running test..."
+    ./$BUILD_DIR/$NAME/zephyr/zephyr.exe
+fi
