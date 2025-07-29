@@ -12,8 +12,6 @@
  * to the serial port.
  */
 
-#include <sample_usbd.h>
-
 #include <stdio.h>
 #include <string.h>
 #include <zephyr/device.h>

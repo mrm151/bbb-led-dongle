@@ -4,9 +4,13 @@
 #include <zephyr/random/random.h>
 #include <string.h>
 #include <stdio.h>
+#include <zephyr/sys/crc.h>
+#include <zephyr/logging/log.h>
 
 K_QUEUE_DEFINE(q_incoming);
 K_QUEUE_DEFINE(q_outgoing);
+
+LOG_MODULE_REGISTER(bbbled_protocol);
 
 
 static void protocol_packet_destroy(protocol_data_pkt_t* packet);
@@ -72,7 +76,7 @@ static const size_t calc_rq_buf_size(size_t command_len, protocol_param_t *param
     }
     size += (sizeof(char) * strlen(protocol_msg_identifier));
     size += sizeof(uint8_t); // ':'
-    size += (sizeof(char) * PROTOCOL_MAX_MSG_IDENTIFIER_LEN); // worst case msg number length (16-bit decimal as char)
+    size += (sizeof(char) * PROTOCOL_MAX_MSG_NUM_CHARS); // worst case msg number length (16-bit decimal as char)
     size += sizeof(uint8_t); // ','
     size += sizeof(uint8_t); // '\0';
 
@@ -88,7 +92,12 @@ static const size_t calc_rq_buf_size(size_t command_len, protocol_param_t *param
  * @return  String representation of the packet
  */
 
-int serialise_packet(uint8_t *buf, size_t buf_size, const protocol_data_pkt_t *pkt, size_t *written)
+int serialise_packet(
+    uint8_t *buf,
+    size_t buf_size,
+    const protocol_data_pkt_t *pkt,
+    size_t *written,
+    uint16_t *checksum)
 {
     // null ptr check
     if (buf == NULL || pkt == NULL || written == NULL)
@@ -159,8 +168,21 @@ int serialise_packet(uint8_t *buf, size_t buf_size, const protocol_data_pkt_t *p
     memcpy((buf + *written), msg_num_identifier, strlen(msg_num_identifier));
     *written += strlen(msg_num_identifier);
 
+    // CRC
+    char char_crc[8];
+    uint16_t crc = crc16_ccitt(PROTOCOL_CRC_POLY, buf, *written);
+    *checksum = crc;
+
+    snprintf(char_crc, sizeof(char_crc), "%04x#", crc);
+    memcpy((buf + *written), char_crc, strlen(char_crc));
+
+    *written += strlen(char_crc);
+
     // null-terminate
     *(buf + *written) = '\0';
+    (*written)++;
+
+    LOG_DBG("Serialised packet, data=%s", buf);
 
     return 0;
 }
@@ -184,35 +206,83 @@ protocol_data_pkt_t* parse(const uint8_t* bytes, size_t len)
  */
 static int verify_crc(const uint8_t* bytes, size_t len, uint8_t crc)
 {
-    return EPERM;
+    return crc == crc16_ccitt(PROTOCOL_CRC_POLY, bytes, len);
 }
 
 /**
- * @brief Verify the data (command and params) of a packet
+ * @brief Verify the command and params of a packet.
+ * This includes checking that the lengths of theses
+ * properties are correst and that the command and parameters
+ * are valid.
  *
- * @param   packet  :   packet to verify
+ * @param   command :   the command for verification
+ * @param   params  :   an array of key, value params
  *
  * @return  0 if the data is valid, -1 if it is not
  */
-static int verify_data(const protocol_data_pkt_t* packet)
+static int verify(const char* command, const protocol_param_t *params)
 {
     return EPERM;
 }
 
 /**
- * @brief Create a new protocol packet
+ * @brief Creates a new protocol packet. Assigns the packet a
+ * msg number, serialises its data and sets its CRC.
  *
  * @param   command     :   command to send
  * @param   params      :   parameters to send with the command
  * @param   num_params  :   number of parameters to send
+ * @param   dest        :   the packet to populate
+ * @param   buf         :   buffer to copy serialised packet into
+ * @param   buf_size    :   size of the buffer
  *
- * @return  Success or failure
+ * @return  0 (success) or -1 (fail)
  */
 int protocol_packet_create(
-    const char* command,
+    char* command,
     protocol_param_t *params,
     size_t num_params,
-    protocol_data_pkt_t *dest)
+    protocol_data_pkt_t *dest,
+    uint8_t *buf,
+    size_t buf_size)
 {
-    return EPERM;
+    uint16_t checksum = 0;
+    size_t written = 0;
+
+
+    if (command == NULL || dest == NULL)
+    {
+        return -1;
+    }
+
+    if (strlen(command) > PROTOCOL_MAX_CMD_LEN || num_params > PROTOCOL_MAX_PARAMS)
+    {
+        return -1;
+    }
+
+    protocol_param_t *param = params;
+    while (param < params + num_params)
+    {
+        if (strlen(param->key) > PROTOCOL_MAX_KEY_LEN ||
+            strlen(param->value) > PROTOCOL_MAX_VALUE_LEN)
+        {
+            return -1;
+        }
+        param++;
+    }
+
+    dest->command = command;
+    dest->params = params;
+    dest->num_params = num_params;
+    dest->msg_num = create_msg_num();
+
+    int ret = serialise_packet(buf, buf_size, dest, &written, &checksum);
+
+    if (ret != 0)
+    {
+        LOG_ERR("Failed to create packet - buffer size: %ld, bytes written: %ld", buf_size, written);
+    }
+
+    dest->data = buf;
+    dest->crc = checksum;
 }

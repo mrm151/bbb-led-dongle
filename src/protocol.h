@@ -14,8 +14,10 @@ extern "C" {
 #define PROTOCOL_MAX_VALUE_LEN 16
 #define PROTOCOL_MAX_MSG_RETRIES 5
 #define PROTOCOL_CRC_POLY 0x1021 // CCITT poly
-#define PROTOCOL_MAX_MSG_IDENTIFIER_LEN 16
-
+// max number of chars in msg:<number> identifier
+#define PROTOCOL_MAX_MSG_NUM_CHARS 5
+#define PROTOCOL_MAX_CMD_LEN 32
+#define PROTOCOL_MAX_DATA_SIZE 305
 
 static const char* protocol_msg_identifier = "msg";
 
@@ -55,21 +57,25 @@ typedef struct {
     protocol_param_t *params;
     size_t num_params;
     int msg_num;
+    uint8_t *data;
     uint16_t crc; // CRC checksum for the message
 } protocol_data_pkt_t;
 
 
 int protocol_packet_create(
-    const char* command,
+    char* command,
     protocol_param_t *params,
     size_t num_params,
-    protocol_data_pkt_t *dest);
+    protocol_data_pkt_t *dest,
+    uint8_t *buf,
+    size_t buf_size);
 
 int serialise_packet(
     uint8_t *buf,
     size_t buf_size,
     const protocol_data_pkt_t *packet,
-    size_t *written);
+    size_t *written,
+    uint16_t *checksum);
 
 
 #ifdef __cplusplus
