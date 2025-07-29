@@ -1,6 +1,16 @@
 # editors
 *.swp
 *~
+.vscode
+*.code-workspace
 
 # build
-/build*/
+build*/
+CMakeFiles*
+build_info.yml
+
+# tests
+/twister-out
+
+# artifacts
+*.zip
