@@ -11,6 +11,8 @@ static const uint8_t expected_serialised_pkt[] =
 
 static const size_t expected_serialised_pkt_bytes = 129;
 
+static const uint16_t expected_crc = 0x6172;
+
 static protocol_param_t test_params[PROTOCOL_MAX_PARAMS] = {
     {.key = "brightnesssssss", .value = "200000000000000"},
     {.key = "red", .value = "122"},
@@ -78,7 +80,22 @@ ZTEST(protocol_test, serialise_packet_params_large)
     int rc = serialise_packet(buf, sizeof(buf), &pkt, &written, &checksum);
 
     zassert_equal(-1, rc);
+    // Some bytes have been written
     zassert_true(0 < written);
+}
+
+ZTEST(protocol_test, create_packet_normal)
+{
+    uint8_t data[PROTOCOL_MAX_DATA_SIZE] = {0};
+    protocol_data_pkt_t pkt = {0};
+
+    protocol_packet_create(test_command, test_params, sizeof(test_params), &pkt, data, sizeof(data));
+
+    zassert_str_equal(test_command, pkt.command);
+    zassert_equal(test_params, pkt.params);
+    zassert_equal(sizeof(test_params), pkt.num_params);
+    zassert_str_equal(expected_serialised_pkt, pkt.data);
+    zassert_equal(expected_crc, pkt.crc);
 }
 
 ZTEST_SUITE(protocol_test, NULL, NULL, NULL, NULL, NULL);
