@@ -18,6 +18,7 @@ extern "C" {
 #define PROTOCOL_MAX_MSG_NUM_CHARS 5
 #define PROTOCOL_MAX_CMD_LEN 32
 #define PROTOCOL_MAX_DATA_SIZE 305
+#define PROTOCOL_RECV_BUF_SIZE 512
 
 static const char* protocol_msg_identifier = "msg";
 
@@ -45,6 +46,12 @@ typedef struct {
 } protocol_param_t;
 
 
+struct protocol_buf {
+    uint8_t buf[PROTOCOL_MAX_DATA_SIZE];
+    size_t len;
+    struct k_mem_slab *slab;
+};
+
 /**
  * @brief Packet structure for the protocol. Each packet should include:
  * @param   command     :   the command being sent (e.g brightness/rainbow/sleep)
@@ -52,31 +59,35 @@ typedef struct {
  * @param   num_params  :   how many params we are sending
  * @param   crc         :   the crc for the data
  */
-typedef struct {
+typedef struct _protocol_data_pkt_t{
     char* command;
     protocol_param_t *params;
     size_t num_params;
-    int msg_num;
-    uint8_t *data;
+    uint16_t msg_num;
+    struct protocol_buf *data;
     uint16_t crc; // CRC checksum for the message
+    struct k_mem_slab *slab;
 } protocol_data_pkt_t;
 
+struct protocol_ctx {
+    uint8_t *recv_buf;
+    struct k_queue outbox;
+    protocol_data_pkt_t *pkt;
+};
 
-int protocol_packet_create(
+protocol_data_pkt_t* protocol_packet_create(
     char* command,
     protocol_param_t *params,
-    size_t num_params,
-    protocol_data_pkt_t *dest,
-    uint8_t *buf,
-    size_t buf_size);
+    size_t num_params);
 
 int serialise_packet(
-    uint8_t *buf,
-    size_t buf_size,
-    const protocol_data_pkt_t *packet,
+    const protocol_data_pkt_t *pkt,
     size_t *written,
-    uint16_t *checksum);
+    uint16_t *crc);
 
+int protocol_ctx_init_pkt(struct protocol_ctx *ctx, char* command, protocol_param_t *params, size_t num_params);
+
+int protocol_init_ctx(struct protocol_ctx *ctx);
 
 #ifdef __cplusplus
 }

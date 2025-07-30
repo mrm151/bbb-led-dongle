@@ -3,6 +3,11 @@
 #include <zephyr/logging/log.h>
 #include <errno.h>
 #include <stdlib.h>
+#include <zephyr/kernel.h>
+
+#define SMALL_SLAB_BLOCK_SIZE 64
+
+K_MEM_SLAB_DEFINE(slab_too_small, 1, 1, 4);
 
 LOG_MODULE_REGISTER(protocol_test);
 
@@ -43,70 +48,83 @@ static struct protocol_ctx *initialised_ctx = {0};
 
 ZTEST(protocol_test, serialise_packet_normal)
 {
-    uint8_t buf[PROTOCOL_MAX_DATA_SIZE] = {0};
+    struct protocol_buf buf = {
+        .buf = {0},
+        .len = 0,
+    };
+
     protocol_data_pkt_t pkt = {0};
+    uint16_t crc;
+
     pkt.params = test_params;
     pkt.command = test_command;
     pkt.num_params = PROTOCOL_MAX_PARAMS;
     pkt.msg_num = (uint16_t)11111;
-    uint16_t crc;
+    pkt.data = &buf;
 
     size_t written = 0;
 
-    int rc = serialise_packet(buf, sizeof(buf), &pkt, &written, &crc);
+    int rc = serialise_packet(&pkt, &written, &crc);
 
     zassert_equal(0, rc);
     zassert_equal(expected_serialised_pkt_bytes, written, "expected:%ld, written:%ld", expected_serialised_pkt_bytes, written);
-    zassert_str_equal(expected_serialised_pkt, buf);
-    zassert_equal(expected_crc, crc);
-}
-
-ZTEST(protocol_test, serialise_packet_too_small)
-{
-    uint8_t buf[64] = {0};
-    protocol_data_pkt_t pkt = {0};
-    pkt.params = test_params;
-    pkt.command = test_command;
-    pkt.num_params = PROTOCOL_MAX_PARAMS;
-    uint16_t checksum;
-
-    size_t written = 0;
-
-    int rc = serialise_packet(buf, sizeof(buf), &pkt, &written, &checksum);
-
-    zassert_equal(ENOMEM, rc);
-    zassert_equal(0, written);
+    zassert_str_equal(expected_serialised_pkt, pkt.data);
+    zassert_equal(expected_crc, crc, "expected %04x, got %04x", expected_crc, crc);
 }
 
 ZTEST(protocol_test, serialise_packet_params_large)
 {
-    uint8_t buf[256] = {0};
+    struct protocol_buf buf = {
+        .buf = {0},
+        .len = 0
+    };
+
     protocol_data_pkt_t pkt = {0};
+    uint16_t crc;
+
     pkt.params = test_params_too_large;
     pkt.command = test_command;
     pkt.num_params = PROTOCOL_MAX_PARAMS;
-    uint16_t checksum;
+    pkt.data = &buf;
 
     size_t written = 0;
 
-    int rc = serialise_packet(buf, sizeof(buf), &pkt, &written, &checksum);
+    int rc = serialise_packet(&pkt, &written, &crc);
 
-    zassert_equal(-1, rc);
+    zassert_equal(-2, rc);
     // Some bytes have been written
     zassert_true(0 < written);
 }
 
 ZTEST(protocol_test, create_packet_normal)
 {
-    uint8_t data[PROTOCOL_MAX_DATA_SIZE] = {0};
-    protocol_data_pkt_t pkt;
+    protocol_data_pkt_t *pkt;
+    pkt = protocol_packet_create(test_command, test_params, PROTOCOL_MAX_PARAMS);
 
-    int rc = protocol_packet_create(test_command, test_params, PROTOCOL_MAX_PARAMS, &pkt, data, sizeof(data));
+    zassert_not_null(pkt);
+    zassert_str_equal(test_command, pkt->command);
+    zassert_equal(test_params, pkt->params);
+    zassert_equal(PROTOCOL_MAX_PARAMS, pkt->num_params);
+    zassert_equal(expected_serialised_pkt_bytes, pkt->data->len);
 
-    zassert_equal(0, rc);
-    zassert_str_equal(test_command, pkt.command);
-    zassert_equal(test_params, pkt.params);
-    zassert_equal(PROTOCOL_MAX_PARAMS, pkt.num_params);
+    zassert_equal(1, k_mem_slab_num_used_get(pkt->slab));
+    zassert_equal(1, k_mem_slab_num_used_get(pkt->data->slab));
+
+    // Manually free memory
+    k_mem_slab_free(pkt->data->slab, pkt->data);
+    zassert_equal(0, k_mem_slab_num_used_get(pkt->data->slab));
+    k_mem_slab_free(pkt->slab, pkt);
+    zassert_equal(0, k_mem_slab_num_used_get(pkt->slab));
 }
+
+// ZTEST(protocol_test, init_ctx)
+// {
+//     struct protocol_ctx ctx;
+
+//     protocol_init_ctx(&ctx);
+
+//     zassert_not_null(ctx.outbox);
+
+// }
 
 ZTEST_SUITE(protocol_test, NULL, NULL, NULL, NULL, NULL);
