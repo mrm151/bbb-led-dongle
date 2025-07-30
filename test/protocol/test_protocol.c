@@ -30,6 +30,17 @@ static protocol_param_t test_params_too_large[PROTOCOL_MAX_PARAMS] = {
 
 static char* test_command = "dummy_command";
 
+static struct protocol_ctx *initialised_ctx = {0};
+
+// ZTEST(protocol_test, initialise_context)
+// {
+//     struct protocol_ctx *test_ctx;
+//     protocol_ctx_init(test_ctx);
+
+//     zassert_mem_equal(initialised_ctx, test_ctx, "Not equal");
+// }
+
+
 ZTEST(protocol_test, serialise_packet_normal)
 {
     uint8_t buf[PROTOCOL_MAX_DATA_SIZE] = {0};
@@ -38,15 +49,16 @@ ZTEST(protocol_test, serialise_packet_normal)
     pkt.command = test_command;
     pkt.num_params = PROTOCOL_MAX_PARAMS;
     pkt.msg_num = (uint16_t)11111;
-    uint16_t checksum;
+    uint16_t crc;
 
     size_t written = 0;
 
-    int rc = serialise_packet(buf, sizeof(buf), &pkt, &written, &checksum);
+    int rc = serialise_packet(buf, sizeof(buf), &pkt, &written, &crc);
 
     zassert_equal(0, rc);
     zassert_equal(expected_serialised_pkt_bytes, written, "expected:%ld, written:%ld", expected_serialised_pkt_bytes, written);
     zassert_str_equal(expected_serialised_pkt, buf);
+    zassert_equal(expected_crc, crc);
 }
 
 ZTEST(protocol_test, serialise_packet_too_small)
@@ -87,15 +99,14 @@ ZTEST(protocol_test, serialise_packet_params_large)
 ZTEST(protocol_test, create_packet_normal)
 {
     uint8_t data[PROTOCOL_MAX_DATA_SIZE] = {0};
-    protocol_data_pkt_t pkt = {0};
+    protocol_data_pkt_t pkt;
 
-    protocol_packet_create(test_command, test_params, sizeof(test_params), &pkt, data, sizeof(data));
+    int rc = protocol_packet_create(test_command, test_params, PROTOCOL_MAX_PARAMS, &pkt, data, sizeof(data));
 
+    zassert_equal(0, rc);
     zassert_str_equal(test_command, pkt.command);
     zassert_equal(test_params, pkt.params);
-    zassert_equal(sizeof(test_params), pkt.num_params);
-    zassert_str_equal(expected_serialised_pkt, pkt.data);
-    zassert_equal(expected_crc, pkt.crc);
+    zassert_equal(PROTOCOL_MAX_PARAMS, pkt.num_params);
 }
 
 ZTEST_SUITE(protocol_test, NULL, NULL, NULL, NULL, NULL);
