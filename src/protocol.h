@@ -13,12 +13,13 @@ extern "C" {
 #define PROTOCOL_MAX_KEY_LEN 16
 #define PROTOCOL_MAX_VALUE_LEN 16
 #define PROTOCOL_MAX_MSG_RETRIES 5
-#define PROTOCOL_CRC_POLY 0x1021 // CCITT poly
+#define PROTOCOL_CRC_POLY 0x0000 // CCITT poly
 // max number of chars in msg:<number> identifier
 #define PROTOCOL_MAX_MSG_NUM_CHARS 5
 #define PROTOCOL_MAX_CMD_LEN 32
 #define PROTOCOL_MAX_DATA_SIZE 305
 #define PROTOCOL_RECV_BUF_SIZE 512
+#define PROTOCOL_MAX_TOKEN_LEN MAX(PROTOCOL_MAX_CMD_LEN, (PROTOCOL_MAX_KEY_LEN + PROTOCOL_MAX_VALUE_LEN + 1))
 
 static const char* protocol_msg_identifier = "msg";
 
@@ -75,6 +76,11 @@ struct protocol_ctx {
     protocol_data_pkt_t *pkt;
 };
 
+struct protocol_data {
+    char *command;
+    protocol_param_t params;
+};
+
 protocol_data_pkt_t* protocol_packet_create(
     char* command,
     protocol_param_t *params,
@@ -88,6 +94,8 @@ int serialise_packet(
 int protocol_ctx_init_pkt(struct protocol_ctx *ctx, char* command, protocol_param_t *params, size_t num_params);
 
 int protocol_init_ctx(struct protocol_ctx *ctx);
+
+struct protocol_data parse(uint8_t *bytes, size_t len);
 
 #ifdef __cplusplus
 }

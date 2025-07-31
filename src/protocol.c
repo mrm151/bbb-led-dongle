@@ -6,6 +6,7 @@
 #include <stdio.h>
 #include <zephyr/sys/crc.h>
 #include <zephyr/logging/log.h>
+#include <stdlib.h>
 
 #define PKT_SLAB_BLOCK_SIZE sizeof(protocol_data_pkt_t)
 #define PKT_SLAB_BLOCK_COUNT 12
@@ -130,7 +131,7 @@ static const size_t calc_rq_buf_size(size_t command_len, protocol_param_t *param
     size += (sizeof(char) * strlen(protocol_msg_identifier));
     size += sizeof(uint8_t); // ':'
     size += (sizeof(char) * PROTOCOL_MAX_MSG_NUM_CHARS); // worst case msg number length (16-bit decimal as char)
-    size += sizeof(uint8_t); // ','
+    size += (sizeof(char) * 5); // #<CRC:04x>
     size += sizeof(uint8_t); // '\0';
 
     LOG_DBG("required size %ld", size);
@@ -213,7 +214,7 @@ int serialise_packet(
     char msg_num_identifier[16];
     int written_to_msg = snprintf(msg_num_identifier,
                         sizeof(msg_num_identifier),
-                        "%s:%d,",
+                        "%s:%d",
                         protocol_msg_identifier,
                         pkt->msg_num);
 
@@ -228,11 +229,16 @@ int serialise_packet(
     *written += strlen(msg_num_identifier);
     LOG_DBG("copied msg num");
 
+    // CRC identifier
+    *(pkt->data->buf + *written) = '#';
+    (*written)++;
+    LOG_DBG("copied crc id");
+
     // CRC
     char char_crc[8];
     uint16_t crc = crc16_ccitt(PROTOCOL_CRC_POLY, pkt->data->buf, *written);
 
-    snprintf(char_crc, sizeof(char_crc), "%04x#", crc);
+    snprintf(char_crc, sizeof(char_crc), "%04x", crc);
     memcpy((pkt->data->buf + *written), char_crc, strlen(char_crc));
 
     *dest_crc = crc;
@@ -251,26 +257,125 @@ int serialise_packet(
 }
 
 /**
- * @brief parse an incoming byte stream
- *
- * @return  A protocol packet if the stream is valid, NULL otherwise
- */
-protocol_data_pkt_t* parse(const uint8_t* bytes, size_t len)
-{
-    return EPERM;
-}
-
-/**
  * @brief Verify the CRC of a packet
  *
  * @param   packet  :   packet to verify
  *
  * @return  0 if the CRC is valid, -1 if it is not
  */
-static int verify_crc(const uint8_t* bytes, size_t len, uint8_t crc)
+static int verify_crc(const uint8_t* bytes, size_t len, uint16_t crc)
 {
-    return crc == crc16_ccitt(PROTOCOL_CRC_POLY, bytes, len);
+    LOG_DBG("got crc %04x, expected %04x", crc, crc16_ccitt(PROTOCOL_CRC_POLY, bytes, len));
+    if (crc == crc16_ccitt(PROTOCOL_CRC_POLY, bytes, len))
+    {
+        return 0;
+    }
+
+    return -1;
 }
+
+protocol_param_t parse_param(char* pair)
+{
+
+}
+
+// char* parse_command()
+
+/**
+ * @brief parse an incoming byte stream
+ *
+ * @return  A protocol packet if the stream is valid, NULL otherwise
+ */
+struct protocol_data parse(uint8_t* bytes, size_t len)
+{
+    if (bytes == NULL)
+    {
+        return;
+    }
+
+    char *token;
+
+    uint8_t *crc_start = (uint8_t*) strchr((char*) bytes, '#');
+
+    if (crc_start == NULL)
+    {
+        return;
+    }
+
+    LOG_DBG("crc_start %s", crc_start);
+    uint16_t crc = (uint16_t) strtol(++crc_start, NULL, 16);
+
+    size_t data_len = (crc_start - bytes);
+    uint8_t bytes_no_crc[data_len];
+    LOG_INF("Size to copy: %ld", (data_len));
+
+    // Remove '#'
+    memcpy(bytes_no_crc, bytes, data_len);
+    bytes_no_crc[data_len] = '\0';
+
+    LOG_INF("bytes no crc %s", bytes_no_crc);
+
+    if (verify_crc((uint8_t*)bytes_no_crc, data_len, crc))
+    {
+        return;
+    }
+
+    // remove '#' from string
+    // *(bytes_no_crc + data_len - 1) = '\0';
+
+    // LOG_INF("bytes no crc %s", bytes_no_crc);
+    // token = strchr(bytes_no_crc, ',');
+
+    // while (token++)
+    // {
+    //     LOG_INF("%s", token);
+    //     char* param_delim;
+    //     param_delim = strchr(token, ':');
+
+    //     if (param_delim)
+    //     {
+    //         LOG_INF("found param: %s", param_delim);
+    //         // parse_param
+    //     }
+    //     else
+    //     {
+    //         LOG_INF("found command: %s", token);
+    //         // parse_command
+    //     }
+
+    //     token = strchr(token, ',');
+    // }
+
+
+
+    // if (tokens == NULL)
+    // {
+    //     LOG_ERR("null ptr");
+    // }
+
+    // stack_data_t token_array[PROTOCOL_MAX_TOKEN_LEN];
+    // struct k_stack token_stack;
+
+    // k_stack_init(&token_stack, token_array, PROTOCOL_MAX_TOKEN_LEN);
+
+    // char c = *bytes;
+
+    // if (c != '!')
+    // {
+    //     LOG_ERR("start of packet not found");
+    //     return -1;
+    // }
+
+    // for (int index = 1; index < len; ++index)
+    // {
+    //     c = bytes[index];
+    //     if (c == ',')
+    //     {
+    //     }
+    //     printf("%c\n", c);
+    // }
+}
+
 
 /**
  * @brief Verify the command and params of a packet.
