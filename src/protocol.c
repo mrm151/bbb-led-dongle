@@ -8,7 +8,7 @@
 #include <zephyr/logging/log.h>
 #include <stdlib.h>
 
-#define PKT_SLAB_BLOCK_SIZE sizeof(protocol_data_pkt_t)
+#define PKT_SLAB_BLOCK_SIZE sizeof(struct protocol_data_pkt)
 #define PKT_SLAB_BLOCK_COUNT 12
 #define SLAB_ALIGNMENT 4
 #define PKT_TIMEOUT_MSEC 100
@@ -21,50 +21,47 @@
 
 
 K_MEM_SLAB_DEFINE(protocol_pkt_slab, PKT_SLAB_BLOCK_SIZE, PKT_SLAB_BLOCK_COUNT, SLAB_ALIGNMENT);
-K_MEM_SLAB_DEFINE(pkt_buf_slab, TX_BUF_SLAB_BLOCK_SIZE, TX_BUF_SLAB_BLOCK_COUNT, SLAB_ALIGNMENT);
+K_MEM_SLAB_DEFINE(protocol_serial_data_slab, TX_BUF_SLAB_BLOCK_SIZE, TX_BUF_SLAB_BLOCK_COUNT, SLAB_ALIGNMENT);
 K_MEM_SLAB_DEFINE(rx_buf_slab, RX_BUF_SLAB_BLOCK_SIZE, RX_BUF_SLAB_BLOCK_COUNT, SLAB_ALIGNMENT);
 
 
 
 LOG_MODULE_REGISTER(bbbled_protocol, LOG_LEVEL_DBG);
 
-
-int protocol_alloc_pkt(struct protocol_ctx *ctx, char* command, protocol_param_t *params, size_t num_params)
+enum valid_command to_enum(char *str)
 {
-    protocol_data_pkt_t *pkt;
-
-    pkt = protocol_packet_create(command, params, num_params);
-
-    ctx->pkt = pkt;
+    enum valid_command command = INVALID;
+    for (int i = 0; i < NUM_COMMANDS; ++i)
+    {
+        if (strcmp(valid_commands_str[i], str) == 0)
+        {
+            command = i;
+            return command;
+        }
+    }
+    return command;
 }
 
-int protocol_init_ctx(struct protocol_ctx *ctx)
+
+char* to_string (enum valid_command command)
 {
-    uint8_t *buf;
-
-    k_mem_slab_alloc(&rx_buf_slab, (void**)&buf, K_NO_WAIT);
-
-    memset(buf, 0, RX_BUF_SLAB_BLOCK_SIZE);
-
-    ctx->recv_buf = buf;
-}
-
-static uint8_t* rx_buf_alloc()
-{
-    uint8_t *buf;
-    k_mem_slab_alloc(&rx_buf_slab, (void**)&buf, K_NO_WAIT);
-    memset(buf, 0, RX_BUF_SLAB_BLOCK_SIZE);
-    return buf;
+    switch (command)
+    {
+        case SET_RGB:
+            return "set_rgb";
+        default:
+            return NULL;
+    }
 }
 
 static void protocol_pkt_dealloc(struct protocol_ctx *ctx)
 {
     if (ctx->pkt)
     {
-        k_mem_slab_free(ctx->pkt->data->slab, ctx->pkt->data);
+        k_mem_slab_free(&protocol_serial_data_slab, ctx->pkt->data);
         ctx->pkt->data = NULL;
 
-        k_mem_slab_free(ctx->pkt->slab, ctx->pkt);
+        k_mem_slab_free(&protocol_pkt_slab, ctx->pkt);
         ctx->pkt = NULL;
     }
 }
@@ -77,7 +74,7 @@ static void protocol_pkt_dealloc(struct protocol_ctx *ctx)
  *
  * @return  An ack packet.
  */
-static const protocol_data_pkt_t* create_ack(const int msg_num)
+static const struct protocol_data_pkt* create_ack(const int msg_num)
 {
     return EPERM;
 }
@@ -90,7 +87,7 @@ static const protocol_data_pkt_t* create_ack(const int msg_num)
  *
  * @return  A nack packet.
  */
-static const protocol_data_pkt_t* create_nack(const int msg_num)
+static const struct protocol_data_pkt* create_nack(const int msg_num)
 {
     return EPERM;
 }
@@ -113,7 +110,7 @@ static uint16_t create_msg_num(void)
  * @param   params      :   the key:value params for the packet
  * @param   num_params  :   the number of params that the packet contains
  */
-static const size_t calc_rq_buf_size(size_t command_len, protocol_param_t *params, size_t num_params)
+static const size_t calc_rq_buf_size(size_t command_len, struct key_val_pair *params, size_t num_params)
 {
     size_t size =
         sizeof(protocol_preamble) +
@@ -148,7 +145,7 @@ static const size_t calc_rq_buf_size(size_t command_len, protocol_param_t *param
  */
 
 int serialise_packet(
-    const protocol_data_pkt_t *pkt,
+    const struct protocol_data_pkt *pkt,
     size_t *written,
     uint16_t *dest_crc)
 {
@@ -230,7 +227,7 @@ int serialise_packet(
     LOG_DBG("copied msg num");
 
     // CRC identifier
-    *(pkt->data->buf + *written) = '#';
+    *(pkt->data->buf + *written) = protocol_crc;
     (*written)++;
     LOG_DBG("copied crc id");
 
@@ -274,106 +271,219 @@ static int verify_crc(const uint8_t* bytes, size_t len, uint16_t crc)
     return -1;
 }
 
-protocol_param_t parse_param(char* pair)
+int validate_params_for_command(enum valid_command command, char *key, char *value)
 {
+    char *end;
+    LOG_DBG("Validating params [%s: %s] for command '%d'", key, value, command);
+    switch (command)
+    {
+        case SET_RGB:
+            for (int index = 0; index < STATIC_STR_ARRAY_LEN(valid_params_set_rgb); ++index)
+            {
+                if (strcmp(valid_params_set_rgb[index], key) == 0)
+                {
 
+                    if (strtol(value, end, 10) < 256)
+                    {
+                        return 0;
+                    }
+                }
+            }
+            break;
+        default:
+            LOG_WRN("unrecognised command : %d", command);
+            break;
+    }
+
+    return -1;
 }
 
-// char* parse_command()
+struct protocol_data_pkt* parse_command_and_params(char token_array[][PROTOCOL_MAX_TOKEN_LEN], size_t len)
+{
+    if (token_array == NULL || len == 0 || token_array[0] == NULL)
+    {
+        LOG_WRN("invalid ptr");
+        return NULL;
+    }
+
+    printf("token_array[0] = %s\n", token_array[0]);
+    // printf("token_array[0][0] = %s\n", token_array[0][0]);
+
+    enum valid_command command = INVALID;
+    LOG_DBG("");
+    for (int index = 0; index < PROTOCOL_VALID_COMMANDS; ++index)
+    {
+        // The command should always be the first member in the array
+        if (strcmp(token_array[0], valid_commands_str[index]) == 0)
+        {
+            LOG_DBG("hello");
+            command = to_enum(token_array[0]);
+        }
+    }
+
+    LOG_DBG("");
+    if (command == INVALID)
+    {
+        LOG_ERR("command invalid");
+        return NULL;
+    }
+
+    // we have a valid command
+    // now extract and validate the key:value pairs
+    // for this command
+    char key[PROTOCOL_MAX_KEY_LEN];
+    char value[PROTOCOL_MAX_VALUE_LEN];
+    struct key_val_pair pairs[PROTOCOL_MAX_PARAMS] = {0};
+    int pair_index = 0;
+    uint16_t msg_no = 0;
+
+    // Start at 1; 0 is already processed
+    for (int index = 1; index < len; ++index)
+    {
+        char *key_end = strchr(token_array[index], protocol_key_value_sep);
+        LOG_DBG("%s", key_end);
+        if (key_end)
+        {
+            LOG_DBG("%ld", key_end - token_array[index]);
+            memcpy(key, token_array[index], (key_end - token_array[index]));\
+            key[key_end - token_array[index]] = '\0';
+
+
+            char *val_start = key_end + 1;
+
+            // Assumes that the end of the token is null terminated
+            while (*key_end++ != '\0');
+            char* val_end = key_end;
+            memcpy(value, val_start, (val_end - val_start));
+
+            LOG_DBG("key is %s", key);
+            LOG_DBG("value is %s", value);
+            strcmp(key, protocol_msg_identifier);
+            LOG_DBG("comparing %s == %s", key, protocol_msg_identifier);
+
+            if (strcmp(key, protocol_msg_identifier) == 0)
+            {
+                LOG_DBG("msg found");
+                char *ptr;
+                msg_no = (uint16_t) strtol(value, ptr, 10);
+            }
+            else if (validate_params_for_command(command, key, value) == 0)
+            {
+                LOG_DBG("key valid");
+                struct key_val_pair pair = {.key = key, .value = value};
+                pairs[pair_index] = pair;
+                ++pair_index;
+            }
+            else
+            {
+                LOG_WRN("invalid param [%s:%s]", key, value);
+            }
+        }
+    }
+
+    return protocol_packet_create(to_string(command), pairs, pair_index + 1);
+}
 
 /**
  * @brief parse an incoming byte stream
  *
  * @return  A protocol packet if the stream is valid, NULL otherwise
  */
-struct protocol_data parse(uint8_t* bytes, size_t len)
+int parse(struct protocol_ctx *ctx)
 {
-    if (bytes == NULL)
+    if (ctx->rx_buf == NULL)
     {
         return;
     }
 
-    char *token;
+    char id = *ctx->rx_buf;
+    if (id != protocol_preamble)
+    {
+        LOG_WRN("preamble not found");
+    }
 
-    uint8_t *crc_start = (uint8_t*) strchr((char*) bytes, '#');
+    // find the crc
+    uint8_t *crc_start = (uint8_t*) strchr((char*) ctx->rx_buf, protocol_crc);
 
     if (crc_start == NULL)
     {
+        LOG_WRN("could not find a crc");
         return;
     }
 
     LOG_DBG("crc_start %s", crc_start);
     uint16_t crc = (uint16_t) strtol(++crc_start, NULL, 16);
 
-    size_t data_len = (crc_start - bytes);
+    size_t data_len = (crc_start - ctx->rx_buf);
     uint8_t bytes_no_crc[data_len];
     LOG_INF("Size to copy: %ld", (data_len));
 
-    // Remove '#'
-    memcpy(bytes_no_crc, bytes, data_len);
+    // Remove the protocol_crc
+    memcpy(bytes_no_crc, ctx->rx_buf, data_len);
     bytes_no_crc[data_len] = '\0';
-
-    LOG_INF("bytes no crc %s", bytes_no_crc);
 
     if (verify_crc((uint8_t*)bytes_no_crc, data_len, crc))
     {
+        LOG_WRN("received invalid crc, must NACK");
         return;
     }
 
-    // remove '#' from string
-    // *(bytes_no_crc + data_len - 1) = '\0';
+    char* csv = bytes_no_crc + 1;
+    char *start_token;
+    char *end_token;
+    char token_array[PROTOCOL_MAX_NUM_TOKENS][PROTOCOL_MAX_TOKEN_LEN] = {0};
 
-    // LOG_INF("bytes no crc %s", bytes_no_crc);
-    // token = strchr(bytes_no_crc, ',');
+    // split the string into parsable tokens
+    char search_char = protocol_item_sep;
+    int index;
+    for (index = 0; index < PROTOCOL_MAX_NUM_TOKENS; ++index)
+    {
+        if (strchr(csv, search_char) == NULL)
+        {
+            if (strchr(csv, protocol_crc) == NULL)
+            {
+                LOG_DBG("reached end of input");
+                break;
+            }
+            else
+            {
+                search_char = protocol_crc;
+            }
+        }
 
-    // while (token++)
+        char token[PROTOCOL_MAX_TOKEN_LEN];
+
+        start_token = csv;
+        end_token = strchr((csv + 1), search_char); // 1 before ','
+
+        if ((end_token - start_token) >= PROTOCOL_MAX_TOKEN_LEN)
+        {
+            LOG_WRN("token too large [%ld bytes] - skipping", (end_token - start_token));
+        }
+        else
+        {
+            memcpy(token, start_token, (end_token - start_token));
+            token[end_token - start_token] = '\0';
+
+            memcpy(token_array[index], token, (end_token - start_token) + 1);
+            LOG_INF("token: %s", token);
+        }
+
+        // Consume up to the next search char
+        csv = strchr(csv, search_char);
+        // And consume it also
+        csv++;
+    }
+
+    // if (index == PROTOCOL_MAX_NUM_TOKENS)
     // {
-    //     LOG_INF("%s", token);
-    //     char* param_delim;
-    //     param_delim = strchr(token, ':');
-
-    //     if (param_delim)
-    //     {
-    //         LOG_INF("found param: %s", param_delim);
-    //         // parse_param
-    //     }
-    //     else
-    //     {
-    //         LOG_INF("found command: %s", token);
-    //         // parse_command
-    //     }
-
-    //     token = strchr(token, ',');
+    //     LOG_WRN("token limit reached, not reading further");
+    //     break;
     // }
 
+    struct protocol_data_pkt *pkt = parse_command_and_params(token_array, index);
 
-
-    // if (tokens == NULL)
-    // {
-    //     LOG_ERR("null ptr");
-    // }
-
-    // stack_data_t token_array[PROTOCOL_MAX_TOKEN_LEN];
-    // struct k_stack token_stack;
-
-    // k_stack_init(&token_stack, token_array, PROTOCOL_MAX_TOKEN_LEN);
-
-    // char c = *bytes;
-
-    // if (c != '!')
-    // {
-    //     LOG_ERR("start of packet not found");
-    //     return -1;
-    // }
-
-    // for (int index = 1; index < len; ++index)
-    // {
-    //     c = bytes[index];
-    //     if (c == ',')
-    //     {
-    //     }
-    //     printf("%c\n", c);
-    // }
+    return 0;
 }
 
 
@@ -388,7 +498,7 @@ struct protocol_data parse(uint8_t* bytes, size_t len)
  *
  * @return  0 if the data is valid, -1 if it is not
  */
-static int verify(const char* command, const protocol_param_t *params)
+static int verify(const char* command, const struct key_val_pair *params)
 {
     return EPERM;
 }
@@ -396,10 +506,8 @@ static int verify(const char* command, const protocol_param_t *params)
 static struct protocol_buf* pkt_alloc_buf(void)
 {
     struct protocol_buf *buf;
-    k_mem_slab_alloc(&pkt_buf_slab, (void**)&buf, K_NO_WAIT);
+    k_mem_slab_alloc(&protocol_serial_data_slab, (void**)&buf, K_NO_WAIT);
     memset(buf, 0, sizeof(struct protocol_buf));
-
-    buf->slab = &pkt_buf_slab;
 
     return buf;
 }
@@ -417,12 +525,12 @@ static struct protocol_buf* pkt_alloc_buf(void)
  *
  * @return  0 (success) or -1 (fail)
  */
-protocol_data_pkt_t* protocol_packet_create(
+struct protocol_data_pkt* protocol_packet_create(
     char* command,
-    protocol_param_t *params,
+    struct key_val_pair *params,
     size_t num_params)
 {
-    protocol_data_pkt_t *pkt;
+    struct protocol_data_pkt *pkt;
     uint16_t crc = 0;
     size_t written = 0;
 
@@ -440,7 +548,7 @@ protocol_data_pkt_t* protocol_packet_create(
         return NULL;
     }
 
-    protocol_param_t *param = params;
+    struct key_val_pair *param = params;
     while (param < params + num_params)
     {
         if (strlen(param->key) > PROTOCOL_MAX_KEY_LEN ||
@@ -452,7 +560,7 @@ protocol_data_pkt_t* protocol_packet_create(
     }
 
     k_mem_slab_alloc(&protocol_pkt_slab, (void **)&pkt, K_NO_WAIT);
-    memset(pkt, 0, sizeof(protocol_data_pkt_t));
+    memset(pkt, 0, sizeof(struct protocol_data_pkt));
 
     pkt->command = command;
     pkt->params = params;
@@ -475,7 +583,6 @@ protocol_data_pkt_t* protocol_packet_create(
 
     pkt->data = data;
     pkt->crc = crc;
-    pkt->slab = &protocol_pkt_slab;
 
     return pkt;
 }

@@ -20,19 +20,34 @@ extern "C" {
 #define PROTOCOL_MAX_DATA_SIZE 305
 #define PROTOCOL_RECV_BUF_SIZE 512
 #define PROTOCOL_MAX_TOKEN_LEN MAX(PROTOCOL_MAX_CMD_LEN, (PROTOCOL_MAX_KEY_LEN + PROTOCOL_MAX_VALUE_LEN + 1))
+// Maximum number of params + command and msg number
+#define PROTOCOL_MAX_NUM_TOKENS (PROTOCOL_MAX_PARAMS + 2)
+#define PROTOCOL_VALID_COMMANDS 1
+#define STATIC_STR_ARRAY_LEN(array) (sizeof(array) / sizeof(*array))
 
 static const char* protocol_msg_identifier = "msg";
 
 static const uint8_t protocol_preamble = '!';
 static const uint8_t protocol_key_value_sep = ':';
 static const uint8_t protocol_item_sep = ',';
+static const uint8_t protocol_crc = '#';
 
-static const char* valid_commands[] = {
-    "brightness",
-    "rainbow",
-    "sleep",
-    "wake",
-    "status"
+
+enum valid_command {
+    SET_RGB = 0,
+    NUM_COMMANDS,
+    INVALID
+};
+
+
+static const char* valid_commands_str[] = {
+    "set_rgb",
+};
+
+static const char* valid_params_set_rgb[] = {
+    "red",
+    "green",
+    "blue"
 };
 
 enum pkt_type {
@@ -41,16 +56,14 @@ enum pkt_type {
     PKT_TYPE_NACK,
 };
 
-typedef struct {
+struct key_val_pair{
     char key[PROTOCOL_MAX_KEY_LEN];
     char value[PROTOCOL_MAX_VALUE_LEN];
-} protocol_param_t;
-
+};
 
 struct protocol_buf {
     uint8_t buf[PROTOCOL_MAX_DATA_SIZE];
     size_t len;
-    struct k_mem_slab *slab;
 };
 
 /**
@@ -60,42 +73,43 @@ struct protocol_buf {
  * @param   num_params  :   how many params we are sending
  * @param   crc         :   the crc for the data
  */
-typedef struct _protocol_data_pkt_t{
-    char* command;
-    protocol_param_t *params;
+struct protocol_data_pkt {
+    char *command;
+    struct key_val_pair *params;
     size_t num_params;
     uint16_t msg_num;
     struct protocol_buf *data;
     uint16_t crc; // CRC checksum for the message
-    struct k_mem_slab *slab;
-} protocol_data_pkt_t;
+};
 
 struct protocol_ctx {
-    uint8_t *recv_buf;
+    uint8_t *rx_buf;
+    size_t rx_len;
     struct k_queue outbox;
-    protocol_data_pkt_t *pkt;
+    struct k_queue incoming;
+    struct protocol_data_pkt *pkt;
 };
 
 struct protocol_data {
     char *command;
-    protocol_param_t params;
+    struct key_val_pair params;
 };
 
-protocol_data_pkt_t* protocol_packet_create(
+struct protocol_data_pkt* protocol_packet_create(
     char* command,
-    protocol_param_t *params,
+    struct key_val_pair *params,
     size_t num_params);
 
 int serialise_packet(
-    const protocol_data_pkt_t *pkt,
+    const struct protocol_data_pkt *pkt,
     size_t *written,
     uint16_t *crc);
 
-int protocol_ctx_init_pkt(struct protocol_ctx *ctx, char* command, protocol_param_t *params, size_t num_params);
+int protocol_ctx_init_pkt(struct protocol_ctx *ctx, char* command, struct key_val_pair *params, size_t num_params);
 
 int protocol_init_ctx(struct protocol_ctx *ctx);
 
-struct protocol_data parse(uint8_t *bytes, size_t len);
+int parse(struct protocol_ctx *ctx);
 
 #ifdef __cplusplus
 }

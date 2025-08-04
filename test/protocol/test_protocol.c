@@ -18,7 +18,7 @@ static const size_t expected_serialised_pkt_bytes = 128;
 
 static const uint16_t expected_crc = 0x1931;
 
-static protocol_param_t test_params[PROTOCOL_MAX_PARAMS] = {
+static struct key_val_pair test_params[PROTOCOL_MAX_PARAMS] = {
     {.key = "brightnesssssss", .value = "200000000000000"},
     {.key = "red", .value = "122"},
     {.key = "blue", .value = "242"},
@@ -29,7 +29,7 @@ static protocol_param_t test_params[PROTOCOL_MAX_PARAMS] = {
     {.key = "goodbaye", .value = "69"}
 };
 
-static protocol_param_t test_params_too_large[PROTOCOL_MAX_PARAMS] = {
+static struct key_val_pair test_params_too_large[PROTOCOL_MAX_PARAMS] = {
     {.key = "brightnessssssss", .value = "2000000000000000"},
 };
 
@@ -53,7 +53,7 @@ ZTEST(protocol_test, serialise_packet_normal)
         .len = 0,
     };
 
-    protocol_data_pkt_t pkt = {0};
+    struct protocol_data_pkt pkt = {0};
     uint16_t crc;
 
     pkt.params = test_params;
@@ -79,7 +79,7 @@ ZTEST(protocol_test, serialise_packet_params_large)
         .len = 0
     };
 
-    protocol_data_pkt_t pkt = {0};
+    struct protocol_data_pkt pkt = {0};
     uint16_t crc;
 
     pkt.params = test_params_too_large;
@@ -98,7 +98,7 @@ ZTEST(protocol_test, serialise_packet_params_large)
 
 ZTEST(protocol_test, create_packet_normal)
 {
-    protocol_data_pkt_t *pkt;
+    struct protocol_data_pkt *pkt;
     pkt = protocol_packet_create(test_command, test_params, PROTOCOL_MAX_PARAMS);
 
     zassert_not_null(pkt);
@@ -107,21 +107,28 @@ ZTEST(protocol_test, create_packet_normal)
     zassert_equal(PROTOCOL_MAX_PARAMS, pkt->num_params);
     zassert_equal(expected_serialised_pkt_bytes, pkt->data->len);
 
-    zassert_equal(1, k_mem_slab_num_used_get(pkt->slab));
-    zassert_equal(1, k_mem_slab_num_used_get(pkt->data->slab));
+    // zassert_equal(1, k_mem_slab_num_used_get(pkt->slab));
+    // zassert_equal(1, k_mem_slab_num_used_get(pkt->data->slab));
 
-    // Manually free memory
-    k_mem_slab_free(pkt->data->slab, pkt->data);
-    zassert_equal(0, k_mem_slab_num_used_get(pkt->data->slab));
-    k_mem_slab_free(pkt->slab, pkt);
-    zassert_equal(0, k_mem_slab_num_used_get(pkt->slab));
+    // // Manually free memory
+    // k_mem_slab_free(pkt->data->slab, pkt->data);
+    // zassert_equal(0, k_mem_slab_num_used_get(pkt->data->slab));
+    // k_mem_slab_free(pkt->slab, pkt);
+    // zassert_equal(0, k_mem_slab_num_used_get(pkt->slab));
 }
 
 ZTEST(protocol_test, parse_byte_stream)
 {
-    const uint8_t test_serialised_pkt_bad[] = "!command,key:value,aaaa:1111,msg:0#fd47";
+    const uint8_t test_serialised_pkt_bad[] = "!set_rgb,key:value,aaaa:1111,msg:0#d56a";
+    struct protocol_ctx ctx;
+    ctx.rx_buf = test_serialised_pkt_bad;
+    ctx.rx_len = sizeof(test_serialised_pkt_bad);
 
-    parse(test_serialised_pkt_bad, sizeof(test_serialised_pkt_bad));
+    parse(&ctx);
+
+    // char* token;
+    // k_stack_pop(&token_stack, (stack_data_t *)token, K_NO_WAIT);
+    // LOG_INF("token: %s", token);
 }
 
 
