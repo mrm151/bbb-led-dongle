@@ -381,7 +381,7 @@ struct protocol_data_pkt* parse_command_and_params(char token_array[][PROTOCOL_M
         }
     }
 
-    return protocol_packet_create(to_string(command), pairs, pair_index + 1);
+    return protocol_packet_create(to_string(command), pairs, pair_index);
 }
 
 /**
