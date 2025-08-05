@@ -147,7 +147,7 @@ static const size_t calc_rq_buf_size(size_t command_len, struct key_val_pair *pa
 int serialise_packet(
     const struct protocol_data_pkt *pkt,
     size_t *written,
-    uint16_t *dest_crc)
+    crc_t *dest_crc)
 {
     // null ptr check
     if (pkt == NULL)
@@ -260,10 +260,31 @@ int serialise_packet(
  *
  * @return  0 if the CRC is valid, -1 if it is not
  */
-static int verify_crc(const uint8_t* bytes, size_t len, uint16_t crc)
+static int verify_crc(const uint8_t* bytes, size_t len)
 {
-    LOG_DBG("got crc %04x, expected %04x", crc, crc16_ccitt(PROTOCOL_CRC_POLY, bytes, len));
-    if (crc == crc16_ccitt(PROTOCOL_CRC_POLY, bytes, len))
+        // find the crc
+    const uint8_t *crc_start;
+    crc_t crc;
+    size_t data_len;
+    uint8_t index = 0;
+
+    crc_start = bytes;
+    while (*crc_start++ != '#')
+    {
+        if (index++ == len) break;
+    };
+
+    if (index >= len)
+    {
+        LOG_WRN("could not find a crc");
+        return 1;
+    }
+
+    crc = (crc_t) strtol(crc_start, NULL, 16);
+    data_len = (crc_start - bytes);
+
+    LOG_DBG("got crc %04x, expected %04x", crc, crc16_ccitt(PROTOCOL_CRC_POLY, bytes, data_len));
+    if (crc == crc16_ccitt(PROTOCOL_CRC_POLY, bytes, data_len))
     {
         return 0;
     }
@@ -271,20 +292,22 @@ static int verify_crc(const uint8_t* bytes, size_t len, uint16_t crc)
     return -1;
 }
 
-int validate_params_for_command(enum valid_command command, char *key, char *value)
+int validate_params_for_command(enum valid_command command, struct key_val_pair *pair)
 {
     char *end;
-    LOG_DBG("Validating params [%s: %s] for command '%d'", key, value, command);
+
+    LOG_DBG("Validating params [%s: %s] for command '%d'", pair->key, pair->value, command);
     switch (command)
     {
         case SET_RGB:
             for (int index = 0; index < STATIC_STR_ARRAY_LEN(valid_params_set_rgb); ++index)
             {
-                if (strcmp(valid_params_set_rgb[index], key) == 0)
+                if (strcmp(valid_params_set_rgb[index], pair->key) == 0)
                 {
 
-                    if (strtol(value, end, 10) < 256)
+                    if (strtol(pair->value, &end, 10) < 256)
                     {
+                        LOG_DBG("pair->value good: %s", pair->value);
                         return 0;
                     }
                 }
@@ -300,28 +323,22 @@ int validate_params_for_command(enum valid_command command, char *key, char *val
 
 struct protocol_data_pkt* parse_command_and_params(char token_array[][PROTOCOL_MAX_TOKEN_LEN], size_t len)
 {
-    if (token_array == NULL || len == 0 || token_array[0] == NULL)
-    {
-        LOG_WRN("invalid ptr");
-        return NULL;
-    }
-
-    printf("token_array[0] = %s\n", token_array[0]);
-    // printf("token_array[0][0] = %s\n", token_array[0][0]);
-
     enum valid_command command = INVALID;
-    LOG_DBG("");
+    char key[PROTOCOL_MAX_KEY_LEN];
+    char value[PROTOCOL_MAX_VALUE_LEN];
+    struct key_val_pair pairs[PROTOCOL_MAX_PARAMS];
+    uint8_t pair_index = 0;
+    uint16_t msg_num = -1;
+
     for (int index = 0; index < PROTOCOL_VALID_COMMANDS; ++index)
     {
         // The command should always be the first member in the array
         if (strcmp(token_array[0], valid_commands_str[index]) == 0)
         {
-            LOG_DBG("hello");
             command = to_enum(token_array[0]);
         }
     }
 
-    LOG_DBG("");
     if (command == INVALID)
     {
         LOG_ERR("command invalid");
@@ -331,57 +348,52 @@ struct protocol_data_pkt* parse_command_and_params(char token_array[][PROTOCOL_M
     // we have a valid command
     // now extract and validate the key:value pairs
     // for this command
-    char key[PROTOCOL_MAX_KEY_LEN];
-    char value[PROTOCOL_MAX_VALUE_LEN];
-    struct key_val_pair pairs[PROTOCOL_MAX_PARAMS] = {0};
-    int pair_index = 0;
-    uint16_t msg_no = 0;
 
     // Start at 1; 0 is already processed
     for (int index = 1; index < len; ++index)
     {
         char *key_end = strchr(token_array[index], protocol_key_value_sep);
-        LOG_DBG("%s", key_end);
+
         if (key_end)
         {
-            LOG_DBG("%ld", key_end - token_array[index]);
-            memcpy(key, token_array[index], (key_end - token_array[index]));\
-            key[key_end - token_array[index]] = '\0';
+            char *val_start;
+            char* val_end;
+            char *ptr;
+            struct key_val_pair pair;
+
+            /*  Copy and null-terminate the value */
+            memcpy(pair.key, token_array[index], (key_end - token_array[index]));
+            pair.key[key_end - token_array[index]] = '\0';
 
 
-            char *val_start = key_end + 1;
+            /*  Copy the key */
+            val_start = key_end + 1;
 
-            // Assumes that the end of the token is null terminated
+            // assume the end of the token has been null-terminated
             while (*key_end++ != '\0');
-            char* val_end = key_end;
-            memcpy(value, val_start, (val_end - val_start));
+            val_end = key_end;
+            memcpy(pair.value, val_start, (val_end - val_start));
 
-            LOG_DBG("key is %s", key);
-            LOG_DBG("value is %s", value);
-            strcmp(key, protocol_msg_identifier);
-            LOG_DBG("comparing %s == %s", key, protocol_msg_identifier);
 
-            if (strcmp(key, protocol_msg_identifier) == 0)
+            /*  Validate the params and get the msg number
+                if one has been supplied */
+            if (strcmp(pair.key, protocol_msg_identifier) == 0)
             {
-                LOG_DBG("msg found");
-                char *ptr;
-                msg_no = (uint16_t) strtol(value, ptr, 10);
+                msg_num = (uint16_t) strtol(pair.value, ptr, 10);
             }
-            else if (validate_params_for_command(command, key, value) == 0)
+            else if (validate_params_for_command(command, &pair) == 0)
             {
-                LOG_DBG("key valid");
-                struct key_val_pair pair = {.key = key, .value = value};
                 pairs[pair_index] = pair;
                 ++pair_index;
             }
             else
             {
-                LOG_WRN("invalid param [%s:%s]", key, value);
+                LOG_WRN("invalid param [%s:%s]", pair.key, pair.value);
             }
         }
     }
 
-    return protocol_packet_create(to_string(command), pairs, pair_index);
+    return protocol_packet_create(to_string(command), pairs, pair_index, msg_num);
 }
 
 /**
@@ -389,53 +401,40 @@ struct protocol_data_pkt* parse_command_and_params(char token_array[][PROTOCOL_M
  *
  * @return  A protocol packet if the stream is valid, NULL otherwise
  */
-int parse(struct protocol_ctx *ctx)
+parser_ret_t parse(struct protocol_ctx *ctx)
 {
+    char id;
+    char *csv;
+    char *start_token;
+    char *end_token;
+    char token_array[PROTOCOL_MAX_NUM_TOKENS][PROTOCOL_MAX_TOKEN_LEN];
+    char search_char = protocol_item_sep;
+    uint8_t index;
+
     if (ctx->rx_buf == NULL)
     {
-        return;
+        return INVALID_BYTE_STREAM;
     }
 
-    char id = *ctx->rx_buf;
+    id = *ctx->rx_buf;
     if (id != protocol_preamble)
     {
         LOG_WRN("preamble not found");
+        return INVALID_PREAMBLE;
     }
 
-    // find the crc
-    uint8_t *crc_start = (uint8_t*) strchr((char*) ctx->rx_buf, protocol_crc);
-
-    if (crc_start == NULL)
+    if (verify_crc(ctx->rx_buf, ctx->rx_len))
     {
-        LOG_WRN("could not find a crc");
-        return;
+        LOG_WRN("invalid crc");
+        return INVALID_CRC;
     }
 
-    LOG_DBG("crc_start %s", crc_start);
-    uint16_t crc = (uint16_t) strtol(++crc_start, NULL, 16);
+    /* Convert the received bytes into string tokens
+        Containing command, params and message number.
+        Increment the pointer by one beforehand, we dont
+        want the '!' included */
+    csv = (char*) (ctx->rx_buf + 1);
 
-    size_t data_len = (crc_start - ctx->rx_buf);
-    uint8_t bytes_no_crc[data_len];
-    LOG_INF("Size to copy: %ld", (data_len));
-
-    // Remove the protocol_crc
-    memcpy(bytes_no_crc, ctx->rx_buf, data_len);
-    bytes_no_crc[data_len] = '\0';
-
-    if (verify_crc((uint8_t*)bytes_no_crc, data_len, crc))
-    {
-        LOG_WRN("received invalid crc, must NACK");
-        return;
-    }
-
-    char* csv = bytes_no_crc + 1;
-    char *start_token;
-    char *end_token;
-    char token_array[PROTOCOL_MAX_NUM_TOKENS][PROTOCOL_MAX_TOKEN_LEN] = {0};
-
-    // split the string into parsable tokens
-    char search_char = protocol_item_sep;
-    int index;
     for (index = 0; index < PROTOCOL_MAX_NUM_TOKENS; ++index)
     {
         if (strchr(csv, search_char) == NULL)
@@ -451,10 +450,8 @@ int parse(struct protocol_ctx *ctx)
             }
         }
 
-        char token[PROTOCOL_MAX_TOKEN_LEN];
-
         start_token = csv;
-        end_token = strchr((csv + 1), search_char); // 1 before ','
+        end_token = strchr((csv), search_char);
 
         if ((end_token - start_token) >= PROTOCOL_MAX_TOKEN_LEN)
         {
@@ -462,24 +459,15 @@ int parse(struct protocol_ctx *ctx)
         }
         else
         {
-            memcpy(token, start_token, (end_token - start_token));
-            token[end_token - start_token] = '\0';
-
-            memcpy(token_array[index], token, (end_token - start_token) + 1);
-            LOG_INF("token: %s", token);
+            /*  copy the token into the array and null terminate it */
+            memcpy(token_array[index], start_token, (end_token - start_token));
+            token_array[index][end_token - start_token] = '\0';
         }
 
-        // Consume up to the next search char
+        /* Consume up to (and including) the next search character */
         csv = strchr(csv, search_char);
-        // And consume it also
         csv++;
     }
-
-    // if (index == PROTOCOL_MAX_NUM_TOKENS)
-    // {
-    //     LOG_WRN("token limit reached, not reading further");
-    //     break;
-    // }
 
     struct protocol_data_pkt *pkt = parse_command_and_params(token_array, index);
 
@@ -528,11 +516,14 @@ static struct protocol_buf* pkt_alloc_buf(void)
 struct protocol_data_pkt* protocol_packet_create(
     char* command,
     struct key_val_pair *params,
-    size_t num_params)
+    size_t num_params,
+    uint16_t msg_num
+    )
 {
     struct protocol_data_pkt *pkt;
-    uint16_t crc = 0;
+    crc_t crc;
     size_t written = 0;
+    struct key_val_pair param;
 
     if (command == NULL)
     {
@@ -548,15 +539,14 @@ struct protocol_data_pkt* protocol_packet_create(
         return NULL;
     }
 
-    struct key_val_pair *param = params;
-    while (param < params + num_params)
+    for (uint8_t index = 0; index < num_params; ++index)
     {
-        if (strlen(param->key) > PROTOCOL_MAX_KEY_LEN ||
-            strlen(param->value) > PROTOCOL_MAX_VALUE_LEN)
+        param = params[index];
+        if (strlen(param.key) > PROTOCOL_MAX_KEY_LEN ||
+            strlen(param.value) > PROTOCOL_MAX_VALUE_LEN)
         {
             return NULL;
         }
-        param++;
     }
 
     k_mem_slab_alloc(&protocol_pkt_slab, (void **)&pkt, K_NO_WAIT);
@@ -565,7 +555,16 @@ struct protocol_data_pkt* protocol_packet_create(
     pkt->command = command;
     pkt->params = params;
     pkt->num_params = num_params;
-    pkt->msg_num = create_msg_num();
+
+    /*  If no message number has been given, generate one */
+    if (msg_num == -1)
+    {
+        pkt->msg_num = create_msg_num();
+    }
+    else
+    {
+        pkt->msg_num = msg_num;
+    }
 
     struct protocol_buf *data;
     data = pkt_alloc_buf();

@@ -39,6 +39,16 @@ enum valid_command {
     INVALID
 };
 
+typedef enum {
+    PARSING_OK = 0,
+    INVALID_BYTE_STREAM,
+    INVALID_PREAMBLE,
+    INVALID_CRC,
+} parser_ret_t;
+
+
+typedef uint16_t crc_t;
+
 
 static const char* valid_commands_str[] = {
     "set_rgb",
@@ -79,7 +89,7 @@ struct protocol_data_pkt {
     size_t num_params;
     uint16_t msg_num;
     struct protocol_buf *data;
-    uint16_t crc; // CRC checksum for the message
+    crc_t crc; // CRC checksum for the message
 };
 
 struct protocol_ctx {
@@ -98,7 +108,8 @@ struct protocol_data {
 struct protocol_data_pkt* protocol_packet_create(
     char* command,
     struct key_val_pair *params,
-    size_t num_params);
+    size_t num_params,
+    uint16_t msg_num);
 
 int serialise_packet(
     const struct protocol_data_pkt *pkt,
@@ -109,7 +120,7 @@ int protocol_ctx_init_pkt(struct protocol_ctx *ctx, char* command, struct key_va
 
 int protocol_init_ctx(struct protocol_ctx *ctx);
 
-int parse(struct protocol_ctx *ctx);
+parser_ret_t parse(struct protocol_ctx *ctx);
 
 #ifdef __cplusplus
 }

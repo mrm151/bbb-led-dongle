@@ -99,7 +99,7 @@ ZTEST(protocol_test, serialise_packet_params_large)
 ZTEST(protocol_test, create_packet_normal)
 {
     struct protocol_data_pkt *pkt;
-    pkt = protocol_packet_create(test_command, test_params, PROTOCOL_MAX_PARAMS);
+    pkt = protocol_packet_create(test_command, test_params, PROTOCOL_MAX_PARAMS, -1);
 
     zassert_not_null(pkt);
     zassert_str_equal(test_command, pkt->command);
@@ -119,7 +119,7 @@ ZTEST(protocol_test, create_packet_normal)
 
 ZTEST(protocol_test, parse_byte_stream)
 {
-    const uint8_t test_serialised_pkt_bad[] = "!set_rgb,key:value,aaaa:1111,msg:0#d56a";
+    const uint8_t test_serialised_pkt_bad[] = "!set_rgb,key:value,red:255,msg:0#d289";
     struct protocol_ctx ctx;
     ctx.rx_buf = test_serialised_pkt_bad;
     ctx.rx_len = sizeof(test_serialised_pkt_bad);
