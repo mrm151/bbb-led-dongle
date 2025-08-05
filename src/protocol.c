@@ -147,6 +147,12 @@ const size_t calc_rq_buf_size(struct protocol_data_pkt *pkt)
 serialise_ret_t serialise_packet(struct protocol_data_pkt *pkt)
 {
     uint16_t offset = 0;
+    /*  4 characters for CRC plus 1 for null termination */
+    char char_crc[5];
+    uint16_t crc;
+    size_t key_len;
+    size_t value_len;
+    size_t total;
 
     // null ptr check
     if (pkt == NULL)
@@ -156,7 +162,6 @@ serialise_ret_t serialise_packet(struct protocol_data_pkt *pkt)
 
     // Determine if buffer supplied is large enough
     size_t command_len = strlen(pkt->command);
-
 
     if (pkt->data_len < calc_rq_buf_size(pkt))
     {
@@ -182,9 +187,9 @@ serialise_ret_t serialise_packet(struct protocol_data_pkt *pkt)
     char pair[PROTOCOL_MAX_KEY_LEN + PROTOCOL_MAX_VALUE_LEN + 2] = {0};
     for (int index = 0; index < pkt->num_params; ++index)
     {
-        size_t key_len = strlen(pkt->params[index].key);
-        size_t value_len = strlen(pkt->params[index].value);
-        size_t total = key_len + value_len + 2; // including ':' and ','
+        key_len = strlen(pkt->params[index].key);
+        value_len = strlen(pkt->params[index].value);
+        total = key_len + value_len + 2; // including ':' and ','
 
         int written_to_pair = snprintf(pair,
                             sizeof(pair),
@@ -229,8 +234,7 @@ serialise_ret_t serialise_packet(struct protocol_data_pkt *pkt)
     LOG_DBG("copied crc id");
 
     // CRC
-    char char_crc[8];
-    uint16_t crc = crc16_ccitt(PROTOCOL_CRC_POLY, pkt->data, offset);
+    crc = crc16_ccitt(PROTOCOL_CRC_POLY, pkt->data, offset);
 
     snprintf(char_crc, sizeof(char_crc), "%04x", crc);
     memcpy((pkt->data + offset), char_crc, strlen(char_crc));
