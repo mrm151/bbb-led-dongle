@@ -44,6 +44,7 @@ typedef enum {
     INVALID_BYTE_STREAM,
     INVALID_PREAMBLE,
     INVALID_CRC,
+    INVALID_TOKENS,
 } parser_ret_t;
 
 

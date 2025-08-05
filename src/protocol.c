@@ -321,7 +321,10 @@ int validate_params_for_command(enum valid_command command, struct key_val_pair 
     return -1;
 }
 
-struct protocol_data_pkt* parse_tokens(char token_array[][PROTOCOL_MAX_TOKEN_LEN], size_t len)
+parser_ret_t parse_tokens(
+    char token_array[][PROTOCOL_MAX_TOKEN_LEN],
+    size_t len,
+    struct protocol_data_pkt *dest_pkt)
 {
     enum valid_command command = INVALID;
     char key[PROTOCOL_MAX_KEY_LEN];
@@ -329,6 +332,7 @@ struct protocol_data_pkt* parse_tokens(char token_array[][PROTOCOL_MAX_TOKEN_LEN
     struct key_val_pair pairs[PROTOCOL_MAX_PARAMS];
     uint8_t pair_index = 0;
     uint16_t msg_num = -1;
+    struct protocol_pkt *pkt;
 
     for (int index = 0; index < PROTOCOL_VALID_COMMANDS; ++index)
     {
@@ -342,7 +346,7 @@ struct protocol_data_pkt* parse_tokens(char token_array[][PROTOCOL_MAX_TOKEN_LEN
     if (command == INVALID)
     {
         LOG_ERR("command invalid");
-        return NULL;
+        return INVALID_TOKENS;
     }
 
     // we have a valid command
@@ -392,8 +396,14 @@ struct protocol_data_pkt* parse_tokens(char token_array[][PROTOCOL_MAX_TOKEN_LEN
             }
         }
     }
+    pkt = protocol_packet_create(to_string(command), pairs, pair_index, msg_num);
+    if (pkt != NULL)
+    {
+        dest_pkt = pkt;
+        return PARSING_OK;
+    }
 
-    return protocol_packet_create(to_string(command), pairs, pair_index, msg_num);
+    return INVALID_TOKENS;
 }
 
 uint8_t tokeniser(char *str, size_t len, char token_array[][PROTOCOL_MAX_TOKEN_LEN])
@@ -451,6 +461,7 @@ parser_ret_t parse(struct protocol_ctx *ctx)
     char *csv;
     char token_array[PROTOCOL_MAX_NUM_TOKENS][PROTOCOL_MAX_TOKEN_LEN] = {0};
     uint8_t num_tokens = 0;
+    struct protocol_data_pkt *pkt;
 
     if (ctx->rx_buf == NULL)
     {
@@ -478,7 +489,10 @@ parser_ret_t parse(struct protocol_ctx *ctx)
     num_tokens = tokeniser(csv, ctx->rx_len - 1, token_array);
 
     /*  Create a packet */
-    struct protocol_data_pkt *pkt = parse_tokens(token_array, num_tokens);
+    if (parse_tokens(token_array, num_tokens, pkt) == PARSING_OK)
+    {
+        ctx->pkt = pkt;
+    };
 
     return 0;
 }
