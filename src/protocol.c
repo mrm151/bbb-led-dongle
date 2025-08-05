@@ -1,4 +1,3 @@
-#include "protocol.h"
 #include <zephyr/types.h>
 #include <errno.h>
 #include <zephyr/random/random.h>
@@ -8,17 +7,14 @@
 #include <zephyr/logging/log.h>
 #include <stdlib.h>
 
+#include "protocol.h"
+
 #define PKT_SLAB_BLOCK_SIZE sizeof(struct protocol_data_pkt)
 #define PKT_SLAB_BLOCK_COUNT 12
 #define SLAB_ALIGNMENT 4
 #define PKT_TIMEOUT_MSEC 100
 
-#define RX_BUF_SLAB_BLOCK_SIZE 360
-#define RX_BUF_SLAB_BLOCK_COUNT 12
-
-
 K_MEM_SLAB_DEFINE(protocol_pkt_slab, PKT_SLAB_BLOCK_SIZE, PKT_SLAB_BLOCK_COUNT, SLAB_ALIGNMENT);
-K_MEM_SLAB_DEFINE(rx_buf_slab, RX_BUF_SLAB_BLOCK_SIZE, RX_BUF_SLAB_BLOCK_COUNT, SLAB_ALIGNMENT);
 
 
 
@@ -38,7 +34,6 @@ command_t to_enum(char *str)
     return command;
 }
 
-
 char* to_string (command_t command)
 {
     switch (command)
@@ -50,15 +45,34 @@ char* to_string (command_t command)
     }
 }
 
-static void protocol_pkt_dealloc(protocol_ctx_t ctx)
+protocol_ctx_t protocol_init(
+    protocol_ctx_obj_t *ctx,
+    uint8_t *buffer,
+    size_t buffer_size,
+    struct k_queue *queue)
 {
-    if (ctx->pkt)
-    {
-        k_mem_slab_free(&protocol_pkt_slab, ctx->pkt);
-        ctx->pkt = NULL;
-    }
+    protocol_ctx_t this;
+    queue_t outbox;
+
+    this = ctx;
+    k_queue_init(queue);
+
+    this->outbox = queue;
+    this->rx_buf = buffer;
+    this->rx_len = buffer_size;
+    this->latest = NULL;
+
+    return this;
 }
 
+static void protocol_pkt_dealloc(protocol_ctx_t ctx)
+{
+    // if (ctx->latest)
+    // {
+    //     k_mem_slab_free(&protocol_pkt_slab, ctx->latest);
+    //     ctx->latest = NULL;
+    // }
+}
 
 /**
  * @brief Construct an ACK for the given message number
@@ -72,7 +86,6 @@ static const struct protocol_data_pkt* create_ack(const int msg_num)
     return EPERM;
 }
 
-
 /**
  * @brief Construct a NACK for the given message number
  *
@@ -85,7 +98,6 @@ static const struct protocol_data_pkt* create_nack(const int msg_num)
     return EPERM;
 }
 
-
 /**
  * @return  A random 16-bit number
  */
@@ -93,7 +105,6 @@ static uint16_t create_msg_num(void)
 {
     return sys_rand16_get();
 }
-
 
 /**
  * @brief Calculate the required size a buffer should be for serialisation
@@ -103,7 +114,8 @@ static uint16_t create_msg_num(void)
  * @param   params      :   the key:value params for the packet
  * @param   num_params  :   the number of params that the packet contains
  */
-const size_t calc_rq_buf_size(struct protocol_data_pkt *pkt)
+const size_t calc_rq_buf_size(
+    struct protocol_data_pkt *pkt)
 {
     size_t command_len = strlen(pkt->command);
 
@@ -140,8 +152,8 @@ const size_t calc_rq_buf_size(struct protocol_data_pkt *pkt)
  *
  * @return  String representation of the packet
  */
-
-serialise_ret_t serialise_packet(struct protocol_data_pkt *pkt)
+serialise_ret_t serialise_packet(
+    struct protocol_data_pkt *pkt)
 {
     uint16_t offset = 0;
     /*  4 characters for CRC plus 1 for null termination */
@@ -289,7 +301,9 @@ static int verify_crc(const uint8_t* bytes, size_t len)
     return -1;
 }
 
-int validate_params_for_command(command_t command, struct key_val_pair *pair)
+int validate_params_for_command(
+    command_t command,
+    struct key_val_pair *pair)
 {
     char *end;
 
@@ -320,10 +334,9 @@ int validate_params_for_command(command_t command, struct key_val_pair *pair)
     return -1;
 }
 
-parser_ret_t parse_tokens(
+struct protocol_data_pkt* parse_tokens(
     char token_array[][PROTOCOL_MAX_TOKEN_LEN],
-    size_t len,
-    struct protocol_data_pkt *dest_pkt)
+    size_t len)
 {
     command_t command = INVALID;
     char key[PROTOCOL_MAX_KEY_LEN];
@@ -331,7 +344,6 @@ parser_ret_t parse_tokens(
     struct key_val_pair pairs[PROTOCOL_MAX_PARAMS];
     uint8_t pair_index = 0;
     uint16_t msg_num = -1;
-    struct protocol_data_pkt *pkt;
 
     for (uint8_t index = 0; index < PROTOCOL_VALID_COMMANDS; ++index)
     {
@@ -345,7 +357,7 @@ parser_ret_t parse_tokens(
     if (command == INVALID)
     {
         LOG_ERR("command invalid");
-        return INVALID_TOKENS;
+        return NULL;
     }
 
     // we have a valid command
@@ -395,17 +407,12 @@ parser_ret_t parse_tokens(
             }
         }
     }
-    pkt = protocol_packet_create(to_string(command), pairs, pair_index, msg_num);
-    if (pkt != NULL)
-    {
-        dest_pkt = pkt;
-        return PARSING_OK;
-    }
-
-    return INVALID_TOKENS;
+    return protocol_packet_create(to_string(command), pairs, pair_index, msg_num);
 }
 
-uint8_t tokeniser(char *str, size_t len, char token_array[][PROTOCOL_MAX_TOKEN_LEN])
+uint8_t tokeniser(
+    char *str, size_t len,
+    char token_array[][PROTOCOL_MAX_TOKEN_LEN])
 {
     uint8_t index;
     char search_char = protocol_item_sep;
@@ -488,12 +495,16 @@ parser_ret_t parse(protocol_ctx_t ctx)
     num_tokens = tokeniser(csv, ctx->rx_len - 1, token_array);
 
     /*  Create a packet */
-    if (parse_tokens(token_array, num_tokens, pkt) == PARSING_OK)
+    pkt = parse_tokens(token_array, num_tokens);
+    if (pkt)
     {
-        ctx->pkt = pkt;
+        ctx->latest = pkt;
+        return PARSING_OK;
     };
 
-    return 0;
+    LOG_DBG("pkt is null");
+
+    return INVALID_TOKENS;
 }
 
 
@@ -508,7 +519,9 @@ parser_ret_t parse(protocol_ctx_t ctx)
  *
  * @return  0 if the data is valid, -1 if it is not
  */
-static int verify(const char* command, const struct key_val_pair *params)
+static int verify(
+    const char* command,
+    const struct key_val_pair *params)
 {
     return EPERM;
 }
@@ -528,15 +541,15 @@ static int verify(const char* command, const struct key_val_pair *params)
  */
 struct protocol_data_pkt* protocol_packet_create(
     char* command,
-    struct key_val_pair *params,
+    struct key_val_pair params[],
     size_t num_params,
-    uint16_t msg_num
-    )
+    uint16_t msg_num)
 {
     struct protocol_data_pkt *pkt;
     crc_t crc;
     size_t written = 0;
     struct key_val_pair param;
+
 
     if (command == NULL)
     {
@@ -552,21 +565,28 @@ struct protocol_data_pkt* protocol_packet_create(
         return NULL;
     }
 
-    for (uint8_t index = 0; index < num_params; ++index)
-    {
-        param = params[index];
-        if (strlen(param.key) > PROTOCOL_MAX_KEY_LEN ||
-            strlen(param.value) > PROTOCOL_MAX_VALUE_LEN)
-        {
-            return NULL;
-        }
-    }
-
     k_mem_slab_alloc(&protocol_pkt_slab, (void **)&pkt, K_NO_WAIT);
     memset(pkt, 0, sizeof(struct protocol_data_pkt));
 
+    for (uint8_t index = 0; index < num_params; ++index)
+    {
+        param = params[index];
+        LOG_DBG("param.key = %s", param.key);
+        LOG_DBG("param.value = %s", param.value);
+
+        if (strlen(param.key) > PROTOCOL_MAX_KEY_LEN ||
+            strlen(param.value) > PROTOCOL_MAX_VALUE_LEN)
+        {
+            LOG_WRN("omitting '%s:%s' too long", param.key, param.value);
+        }
+        else
+        {
+            pkt->params[index] = param;
+        }
+    }
+
     pkt->command = command;
-    pkt->params = params;
+
     pkt->num_params = num_params;
 
     /*  If no message number has been given, generate one */
@@ -578,14 +598,6 @@ struct protocol_data_pkt* protocol_packet_create(
     {
         pkt->msg_num = msg_num;
     }
-
-    // int ret = serialise_packet(pkt);
-
-    // if (ret != 0)
-    // {
-    //     LOG_ERR("Failed to create packet - buffer size: %ld, bytes written: %ld", PROTOCOL_MAX_DATA_SIZE, written);
-    //     return NULL;
-    // }
 
     return pkt;
 }

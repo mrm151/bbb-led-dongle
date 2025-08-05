@@ -91,7 +91,7 @@ struct key_val_pair{
  */
 struct protocol_data_pkt {
     char *command;
-    struct key_val_pair *params;
+    struct key_val_pair params[PROTOCOL_MAX_PARAMS];
     size_t num_params;
     uint16_t msg_num;
     uint8_t *data;
@@ -99,15 +99,16 @@ struct protocol_data_pkt {
     crc_t crc; // CRC checksum for the message
 };
 
-struct protocol_ctx {
+typedef struct k_queue* queue_t;
+
+typedef struct {
     uint8_t *rx_buf;
     size_t rx_len;
-    struct k_queue outbox;
-    struct k_queue incoming;
-    struct protocol_data_pkt *pkt;
-};
+    queue_t outbox;
+    struct protocol_data_pkt *latest;
+} protocol_ctx_obj_t;
 
-typedef struct protocol_ctx* protocol_ctx_t;
+typedef protocol_ctx_obj_t* protocol_ctx_t;
 
 
 struct protocol_data_pkt* protocol_packet_create(
@@ -120,7 +121,11 @@ serialise_ret_t serialise_packet(struct protocol_data_pkt *pkt);
 
 int protocol_ctx_init_pkt(protocol_ctx_t ctx, char* command, struct key_val_pair *params, size_t num_params);
 
-int protocol_init_ctx(protocol_ctx_t ctx);
+protocol_ctx_t protocol_init(
+    protocol_ctx_obj_t *ctx,
+    uint8_t *buffer,
+    size_t buffer_size,
+    struct k_queue *queue);
 
 parser_ret_t parse(protocol_ctx_t ctx);
 

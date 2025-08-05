@@ -9,7 +9,7 @@
 
 K_MEM_SLAB_DEFINE(slab_too_small, 1, 1, 4);
 
-LOG_MODULE_REGISTER(protocol_test);
+LOG_MODULE_REGISTER(protocol_test, LOG_LEVEL_DBG);
 
 static const uint8_t expected_serialised_pkt[] =
     "!dummy_command,brightnesssssss:200000000000000,red:122,blue:242,green:1,pulse:2,gradient:10,hello:67,goodbaye:69,msg:11111#1931";
@@ -50,7 +50,11 @@ ZTEST(protocol_test, serialise_packet_normal)
 {
     struct protocol_data_pkt pkt = {0};
 
-    pkt.params = test_params;
+    for (int i = 0; i < PROTOCOL_MAX_PARAMS; ++i)
+    {
+        pkt.params[i] = test_params[i];
+    }
+
     pkt.command = test_command;
     pkt.num_params = PROTOCOL_MAX_PARAMS;
     pkt.msg_num = (uint16_t)11111;
@@ -76,7 +80,7 @@ ZTEST(protocol_test, serialise_packet_params_large)
     uint16_t crc;
 
 
-    pkt.params = test_params_too_large;
+    memcpy(pkt.params, test_params_too_large, sizeof(test_params_too_large));
     pkt.command = test_command;
     pkt.num_params = PROTOCOL_MAX_PARAMS;
 
@@ -98,18 +102,40 @@ ZTEST(protocol_test, create_packet_normal)
 
     zassert_not_null(pkt);
     zassert_str_equal(test_command, pkt->command);
-    zassert_equal(test_params, pkt->params);
+
+    for (int i = 0; i < PROTOCOL_MAX_PARAMS; ++i)
+    {
+        zassert_str_equal(test_params[i].key, pkt->params[i].key);
+        zassert_str_equal(test_params[i].value, pkt->params[i].value);
+    }
     zassert_equal(PROTOCOL_MAX_PARAMS, pkt->num_params);
 }
 
 ZTEST(protocol_test, parse_byte_stream)
 {
-    const uint8_t test_serialised_pkt_bad[] = "!set_rgb,key:value,red:255,msg:0#d289";
-    struct protocol_ctx ctx;
-    ctx.rx_buf = test_serialised_pkt_bad;
-    ctx.rx_len = sizeof(test_serialised_pkt_bad);
+    const uint8_t test_serialised_pkt_bad[] = "!set_rgb,key:value,red:255,green:11,msg:0#cb7a";
+    protocol_ctx_obj_t obj;
+    protocol_ctx_t ctx;
+    struct k_queue q;
 
-    parse(&ctx);
+    ctx = protocol_init(&obj, test_serialised_pkt_bad, sizeof(test_serialised_pkt_bad), &q);
+
+    LOG_DBG("Initialised");
+    parse(ctx);
+
+    if (ctx->latest == NULL)
+    {
+        LOG_DBG("null");
+    }
+    LOG_DBG("OK");
+
+    LOG_DBG("pkt exists??? ptr is: %p", ctx->latest);
+
+    zassert_str_equal("set_rgb", ctx->latest->command);
+    zassert_str_equal("red", ctx->latest->params[0].key, "ctx->latest->params[0].key = %s", ctx->latest->params[0].key);
+    zassert_str_equal("255", ctx->latest->params[0].value);
+    zassert_str_equal("green", ctx->latest->params[1].key, "ctx->latest->params[1].key = %s", ctx->latest->params[1].key);
+    zassert_str_equal("11", ctx->latest->params[1].value);
 
     // char* token;
     // k_stack_pop(&token_stack, (stack_data_t *)token, K_NO_WAIT);
