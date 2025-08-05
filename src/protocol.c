@@ -321,7 +321,7 @@ int validate_params_for_command(enum valid_command command, struct key_val_pair 
     return -1;
 }
 
-struct protocol_data_pkt* parse_command_and_params(char token_array[][PROTOCOL_MAX_TOKEN_LEN], size_t len)
+struct protocol_data_pkt* parse_tokens(char token_array[][PROTOCOL_MAX_TOKEN_LEN], size_t len)
 {
     enum valid_command command = INVALID;
     char key[PROTOCOL_MAX_KEY_LEN];
@@ -396,6 +396,50 @@ struct protocol_data_pkt* parse_command_and_params(char token_array[][PROTOCOL_M
     return protocol_packet_create(to_string(command), pairs, pair_index, msg_num);
 }
 
+uint8_t tokeniser(char *str, size_t len, char token_array[][PROTOCOL_MAX_TOKEN_LEN])
+{
+    uint8_t index;
+    char search_char = protocol_item_sep;
+    char *start_token;
+    char *end_token;
+
+    for (index = 0; index < PROTOCOL_MAX_NUM_TOKENS; ++index)
+    {
+        if (strchr(str, search_char) == NULL)
+        {
+            if (strchr(str, protocol_crc) == NULL)
+            {
+                LOG_DBG("reached end of input");
+                break;
+            }
+            else
+            {
+                search_char = protocol_crc;
+            }
+        }
+
+        start_token = str;
+        end_token = strchr((str), search_char);
+
+        if ((end_token - start_token) >= PROTOCOL_MAX_TOKEN_LEN)
+        {
+            LOG_WRN("token too large [%ld bytes] - skipping", (end_token - start_token));
+        }
+        else
+        {
+            /*  copy the token into the array and null terminate it */
+            memcpy(token_array[index], start_token, (end_token - start_token));
+            token_array[index][end_token - start_token] = '\0';
+        }
+
+        /* Consume up to (and including) the next search character */
+        str = strchr(str, search_char);
+        str++;
+    }
+
+    return index;
+}
+
 /**
  * @brief parse an incoming byte stream
  *
@@ -405,11 +449,8 @@ parser_ret_t parse(struct protocol_ctx *ctx)
 {
     char id;
     char *csv;
-    char *start_token;
-    char *end_token;
-    char token_array[PROTOCOL_MAX_NUM_TOKENS][PROTOCOL_MAX_TOKEN_LEN];
-    char search_char = protocol_item_sep;
-    uint8_t index;
+    char token_array[PROTOCOL_MAX_NUM_TOKENS][PROTOCOL_MAX_TOKEN_LEN] = {0};
+    uint8_t num_tokens = 0;
 
     if (ctx->rx_buf == NULL)
     {
@@ -434,42 +475,10 @@ parser_ret_t parse(struct protocol_ctx *ctx)
         Increment the pointer by one beforehand, we dont
         want the '!' included */
     csv = (char*) (ctx->rx_buf + 1);
+    num_tokens = tokeniser(csv, ctx->rx_len - 1, token_array);
 
-    for (index = 0; index < PROTOCOL_MAX_NUM_TOKENS; ++index)
-    {
-        if (strchr(csv, search_char) == NULL)
-        {
-            if (strchr(csv, protocol_crc) == NULL)
-            {
-                LOG_DBG("reached end of input");
-                break;
-            }
-            else
-            {
-                search_char = protocol_crc;
-            }
-        }
-
-        start_token = csv;
-        end_token = strchr((csv), search_char);
-
-        if ((end_token - start_token) >= PROTOCOL_MAX_TOKEN_LEN)
-        {
-            LOG_WRN("token too large [%ld bytes] - skipping", (end_token - start_token));
-        }
-        else
-        {
-            /*  copy the token into the array and null terminate it */
-            memcpy(token_array[index], start_token, (end_token - start_token));
-            token_array[index][end_token - start_token] = '\0';
-        }
-
-        /* Consume up to (and including) the next search character */
-        csv = strchr(csv, search_char);
-        csv++;
-    }
-
-    struct protocol_data_pkt *pkt = parse_command_and_params(token_array, index);
+    /*  Create a packet */
+    struct protocol_data_pkt *pkt = parse_tokens(token_array, num_tokens);
 
     return 0;
 }

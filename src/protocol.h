@@ -100,10 +100,6 @@ struct protocol_ctx {
     struct protocol_data_pkt *pkt;
 };
 
-struct protocol_data {
-    char *command;
-    struct key_val_pair params;
-};
 
 struct protocol_data_pkt* protocol_packet_create(
     char* command,
