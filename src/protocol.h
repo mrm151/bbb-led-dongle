@@ -47,6 +47,14 @@ typedef enum {
     INVALID_TOKENS,
 } parser_ret_t;
 
+typedef enum {
+    SERIALISE_OK = 0,
+    SERIALISE_NO_MEM,
+    SERIALISE_INVALID_PKT,
+    SERIALISE_EXCEED_PAIR_LEN,
+    SERIALISE_EXCEED_MSG_LEN,
+} serialise_ret_t;
+
 
 typedef uint16_t crc_t;
 
@@ -72,10 +80,6 @@ struct key_val_pair{
     char value[PROTOCOL_MAX_VALUE_LEN];
 };
 
-struct protocol_buf {
-    uint8_t buf[PROTOCOL_MAX_DATA_SIZE];
-    size_t len;
-};
 
 /**
  * @brief Packet structure for the protocol. Each packet should include:
@@ -89,7 +93,8 @@ struct protocol_data_pkt {
     struct key_val_pair *params;
     size_t num_params;
     uint16_t msg_num;
-    struct protocol_buf *data;
+    uint8_t *data;
+    size_t data_len;
     crc_t crc; // CRC checksum for the message
 };
 
@@ -101,6 +106,8 @@ struct protocol_ctx {
     struct protocol_data_pkt *pkt;
 };
 
+typedef struct protocol_ctx* protocol_ctx_t;
+
 
 struct protocol_data_pkt* protocol_packet_create(
     char* command,
@@ -108,16 +115,15 @@ struct protocol_data_pkt* protocol_packet_create(
     size_t num_params,
     uint16_t msg_num);
 
-int serialise_packet(
-    const struct protocol_data_pkt *pkt,
-    size_t *written,
-    uint16_t *crc);
+serialise_ret_t serialise_packet(struct protocol_data_pkt *pkt);
 
-int protocol_ctx_init_pkt(struct protocol_ctx *ctx, char* command, struct key_val_pair *params, size_t num_params);
+int protocol_ctx_init_pkt(protocol_ctx_t ctx, char* command, struct key_val_pair *params, size_t num_params);
 
-int protocol_init_ctx(struct protocol_ctx *ctx);
+int protocol_init_ctx(protocol_ctx_t ctx);
 
-parser_ret_t parse(struct protocol_ctx *ctx);
+parser_ret_t parse(protocol_ctx_t ctx);
+
+const size_t calc_rq_buf_size(struct protocol_data_pkt *pkt);
 
 #ifdef __cplusplus
 }

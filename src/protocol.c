@@ -21,7 +21,6 @@
 
 
 K_MEM_SLAB_DEFINE(protocol_pkt_slab, PKT_SLAB_BLOCK_SIZE, PKT_SLAB_BLOCK_COUNT, SLAB_ALIGNMENT);
-K_MEM_SLAB_DEFINE(protocol_serial_data_slab, TX_BUF_SLAB_BLOCK_SIZE, TX_BUF_SLAB_BLOCK_COUNT, SLAB_ALIGNMENT);
 K_MEM_SLAB_DEFINE(rx_buf_slab, RX_BUF_SLAB_BLOCK_SIZE, RX_BUF_SLAB_BLOCK_COUNT, SLAB_ALIGNMENT);
 
 
@@ -54,13 +53,10 @@ char* to_string (enum valid_command command)
     }
 }
 
-static void protocol_pkt_dealloc(struct protocol_ctx *ctx)
+static void protocol_pkt_dealloc(protocol_ctx_t ctx)
 {
     if (ctx->pkt)
     {
-        k_mem_slab_free(&protocol_serial_data_slab, ctx->pkt->data);
-        ctx->pkt->data = NULL;
-
         k_mem_slab_free(&protocol_pkt_slab, ctx->pkt);
         ctx->pkt = NULL;
     }
@@ -110,19 +106,23 @@ static uint16_t create_msg_num(void)
  * @param   params      :   the key:value params for the packet
  * @param   num_params  :   the number of params that the packet contains
  */
-static const size_t calc_rq_buf_size(size_t command_len, struct key_val_pair *params, size_t num_params)
+const size_t calc_rq_buf_size(struct protocol_data_pkt *pkt)
 {
+    size_t command_len = strlen(pkt->command);
+
+    /*  '!' + "<command>" + ',' */
     size_t size =
         sizeof(protocol_preamble) +
         (sizeof(char) * command_len) +
-        sizeof(uint8_t); // '!' + "<command>" + ','
+        sizeof(uint8_t);
 
 
-    for (int i = 0; i < num_params; ++i)
+    /*  "<key0>:<value0>,<key1>:<value1>,..." */
+    for (int i = 0; i < pkt->num_params; ++i)
     {
-        size += (sizeof(char) * strlen(params[i].key));
+        size += (sizeof(char) * strlen(pkt->params[i].key));
         size += sizeof(uint8_t); // ':'
-        size += (sizeof(char) * strlen(params[i].value));
+        size += (sizeof(char) * strlen(pkt->params[i].value));
         size += sizeof(uint8_t); // ','
     }
     size += (sizeof(char) * strlen(protocol_msg_identifier));
@@ -131,7 +131,7 @@ static const size_t calc_rq_buf_size(size_t command_len, struct key_val_pair *pa
     size += (sizeof(char) * 5); // #<CRC:04x>
     size += sizeof(uint8_t); // '\0';
 
-    LOG_DBG("required size %ld", size);
+    LOG_DBG("calculated size: %ld", size);
     return size;
 }
 
@@ -144,41 +144,38 @@ static const size_t calc_rq_buf_size(size_t command_len, struct key_val_pair *pa
  * @return  String representation of the packet
  */
 
-int serialise_packet(
-    const struct protocol_data_pkt *pkt,
-    size_t *written,
-    crc_t *dest_crc)
+serialise_ret_t serialise_packet(struct protocol_data_pkt *pkt)
 {
+    uint16_t offset = 0;
+
     // null ptr check
     if (pkt == NULL)
     {
-        return -1;
+        return SERIALISE_INVALID_PKT;
     }
 
     // Determine if buffer supplied is large enough
     size_t command_len = strlen(pkt->command);
-    if (sizeof(pkt->data->buf) < calc_rq_buf_size(command_len, pkt->params, pkt->num_params))
-    {
-        LOG_ERR("supplied buffer not large enough");
-        return ENOMEM;
-    }
-    LOG_DBG("pkt buf size %ld", sizeof(pkt->data->buf));
 
-    if (*written != 0)
+
+    if (pkt->data_len < calc_rq_buf_size(pkt))
     {
-        *written = 0;
+        LOG_ERR("supplied buffer not large enough: got %ld expected %ld", pkt->data_len, calc_rq_buf_size(pkt));
+        return SERIALISE_NO_MEM;
     }
+
+    LOG_DBG("pkt buf size %ld", sizeof(pkt->data));
 
     // Copy preamble into buf
-    *pkt->data->buf = protocol_preamble;
-    (*written)++;
+    *pkt->data = protocol_preamble;
+    offset++;
     LOG_DBG("copied preamble");
 
     // Copy command "<command>," into buf
-    memcpy((pkt->data->buf + *written), pkt->command, command_len);
-    *written += (command_len);
-    *(pkt->data->buf + *written) = protocol_item_sep;
-    (*written)++;
+    memcpy((pkt->data + offset), pkt->command, command_len);
+    offset += (command_len);
+    *(pkt->data + offset) = protocol_item_sep;
+    offset++;
     LOG_DBG("copied command");
 
     // Copy params e.g "<key>:<value>," into buf
@@ -199,11 +196,11 @@ int serialise_packet(
         {
             // key or value of param was too large
             LOG_ERR("exceeded bounds of pair - maxlen=%ld, wrote %ld bytes", sizeof(pair), written_to_pair);
-            return -2;
+            return SERIALISE_EXCEED_PAIR_LEN;
         }
 
-        memcpy((pkt->data->buf + *written), pair, total);
-        *written += total;
+        memcpy((pkt->data + offset), pair, total);
+        offset += total;
     }
     LOG_DBG("copied params");
 
@@ -219,38 +216,38 @@ int serialise_packet(
     {
         // pkt->msg_num was too large
         LOG_ERR("exceeded bounds of msg_num maxlen=16, wrote %d bytes", written_to_msg);
-        return -3;
+        return SERIALISE_EXCEED_MSG_LEN;
     } ;
 
-    memcpy((pkt->data->buf + *written), msg_num_identifier, strlen(msg_num_identifier));
-    *written += strlen(msg_num_identifier);
+    memcpy((pkt->data + offset), msg_num_identifier, strlen(msg_num_identifier));
+    offset += strlen(msg_num_identifier);
     LOG_DBG("copied msg num");
 
     // CRC identifier
-    *(pkt->data->buf + *written) = protocol_crc;
-    (*written)++;
+    *(pkt->data + offset) = protocol_crc;
+    offset++;
     LOG_DBG("copied crc id");
 
     // CRC
     char char_crc[8];
-    uint16_t crc = crc16_ccitt(PROTOCOL_CRC_POLY, pkt->data->buf, *written);
+    uint16_t crc = crc16_ccitt(PROTOCOL_CRC_POLY, pkt->data, offset);
 
     snprintf(char_crc, sizeof(char_crc), "%04x", crc);
-    memcpy((pkt->data->buf + *written), char_crc, strlen(char_crc));
+    memcpy((pkt->data + offset), char_crc, strlen(char_crc));
 
-    *dest_crc = crc;
+    pkt->crc = crc;
 
-    *written += strlen(char_crc);
+    offset += strlen(char_crc);
     LOG_DBG("copied crc");
 
     // null-terminate
-    *(pkt->data->buf + *written) = '\0';
-    (*written)++;
+    *(pkt->data + offset) = '\0';
+    offset++;
 
 
-    LOG_INF("Serialised packet, data=%s", pkt->data->buf);
+    LOG_INF("Serialised packet, data=%s", pkt->data);
 
-    return 0;
+    return SERIALISE_OK;
 }
 
 /**
@@ -262,7 +259,6 @@ int serialise_packet(
  */
 static int verify_crc(const uint8_t* bytes, size_t len)
 {
-        // find the crc
     const uint8_t *crc_start;
     crc_t crc;
     size_t data_len;
@@ -332,7 +328,7 @@ parser_ret_t parse_tokens(
     struct key_val_pair pairs[PROTOCOL_MAX_PARAMS];
     uint8_t pair_index = 0;
     uint16_t msg_num = -1;
-    struct protocol_pkt *pkt;
+    struct protocol_data_pkt *pkt;
 
     for (int index = 0; index < PROTOCOL_VALID_COMMANDS; ++index)
     {
@@ -383,7 +379,7 @@ parser_ret_t parse_tokens(
                 if one has been supplied */
             if (strcmp(pair.key, protocol_msg_identifier) == 0)
             {
-                msg_num = (uint16_t) strtol(pair.value, ptr, 10);
+                msg_num = (uint16_t) strtol(pair.value, &ptr, 10);
             }
             else if (validate_params_for_command(command, &pair) == 0)
             {
@@ -455,7 +451,7 @@ uint8_t tokeniser(char *str, size_t len, char token_array[][PROTOCOL_MAX_TOKEN_L
  *
  * @return  A protocol packet if the stream is valid, NULL otherwise
  */
-parser_ret_t parse(struct protocol_ctx *ctx)
+parser_ret_t parse(protocol_ctx_t ctx)
 {
     char id;
     char *csv;
@@ -512,15 +508,6 @@ parser_ret_t parse(struct protocol_ctx *ctx)
 static int verify(const char* command, const struct key_val_pair *params)
 {
     return EPERM;
-}
-
-static struct protocol_buf* pkt_alloc_buf(void)
-{
-    struct protocol_buf *buf;
-    k_mem_slab_alloc(&protocol_serial_data_slab, (void**)&buf, K_NO_WAIT);
-    memset(buf, 0, sizeof(struct protocol_buf));
-
-    return buf;
 }
 
 /**
@@ -589,22 +576,13 @@ struct protocol_data_pkt* protocol_packet_create(
         pkt->msg_num = msg_num;
     }
 
-    struct protocol_buf *data;
-    data = pkt_alloc_buf();
-    pkt->data = data;
+    // int ret = serialise_packet(pkt);
 
-    int ret = serialise_packet(pkt, &written, &crc);
-
-    if (ret != 0)
-    {
-        LOG_ERR("Failed to create packet - buffer size: %ld, bytes written: %ld", PROTOCOL_MAX_DATA_SIZE, written);
-        return NULL;
-    }
-
-    data->len = written;
-
-    pkt->data = data;
-    pkt->crc = crc;
+    // if (ret != 0)
+    // {
+    //     LOG_ERR("Failed to create packet - buffer size: %ld, bytes written: %ld", PROTOCOL_MAX_DATA_SIZE, written);
+    //     return NULL;
+    // }
 
     return pkt;
 }

@@ -48,52 +48,47 @@ static struct protocol_ctx *initialised_ctx = {0};
 
 ZTEST(protocol_test, serialise_packet_normal)
 {
-    struct protocol_buf buf = {
-        .buf = {0},
-        .len = 0,
-    };
-
     struct protocol_data_pkt pkt = {0};
-    uint16_t crc;
 
     pkt.params = test_params;
     pkt.command = test_command;
     pkt.num_params = PROTOCOL_MAX_PARAMS;
     pkt.msg_num = (uint16_t)11111;
-    pkt.data = &buf;
+
+    size_t data_buf_size = calc_rq_buf_size(&pkt);
+    uint8_t buf[data_buf_size];
+
+    pkt.data = buf;
+    pkt.data_len = data_buf_size;
 
     size_t written = 0;
 
-    int rc = serialise_packet(&pkt, &written, &crc);
+    int rc = serialise_packet(&pkt);
 
-    zassert_equal(0, rc);
-    zassert_equal(expected_serialised_pkt_bytes, written, "expected:%ld, written:%ld", expected_serialised_pkt_bytes, written);
-    zassert_str_equal(expected_serialised_pkt, pkt.data->buf);
-    zassert_equal(expected_crc, crc, "expected %04x, got %04x", expected_crc, crc);
+    zassert_equal(SERIALISE_OK, rc);
+    zassert_str_equal(expected_serialised_pkt, pkt.data);
+    zassert_equal(expected_crc, pkt.crc, "expected %04x, got %04x", expected_crc, pkt.crc);
 }
 
 ZTEST(protocol_test, serialise_packet_params_large)
 {
-    struct protocol_buf buf = {
-        .buf = {0},
-        .len = 0
-    };
-
     struct protocol_data_pkt pkt = {0};
     uint16_t crc;
+
 
     pkt.params = test_params_too_large;
     pkt.command = test_command;
     pkt.num_params = PROTOCOL_MAX_PARAMS;
-    pkt.data = &buf;
 
-    size_t written = 0;
+    size_t data_buf_size = calc_rq_buf_size(&pkt);
+    uint8_t buf[data_buf_size];
 
-    int rc = serialise_packet(&pkt, &written, &crc);
+    pkt.data = buf;
+    pkt.data_len = data_buf_size;
 
-    zassert_equal(-2, rc);
-    // Some bytes have been written
-    zassert_true(0 < written);
+    serialise_ret_t rc = serialise_packet(&pkt);
+
+    zassert_equal(SERIALISE_EXCEED_PAIR_LEN, rc);
 }
 
 ZTEST(protocol_test, create_packet_normal)
@@ -105,16 +100,6 @@ ZTEST(protocol_test, create_packet_normal)
     zassert_str_equal(test_command, pkt->command);
     zassert_equal(test_params, pkt->params);
     zassert_equal(PROTOCOL_MAX_PARAMS, pkt->num_params);
-    zassert_equal(expected_serialised_pkt_bytes, pkt->data->len);
-
-    // zassert_equal(1, k_mem_slab_num_used_get(pkt->slab));
-    // zassert_equal(1, k_mem_slab_num_used_get(pkt->data->slab));
-
-    // // Manually free memory
-    // k_mem_slab_free(pkt->data->slab, pkt->data);
-    // zassert_equal(0, k_mem_slab_num_used_get(pkt->data->slab));
-    // k_mem_slab_free(pkt->slab, pkt);
-    // zassert_equal(0, k_mem_slab_num_used_get(pkt->slab));
 }
 
 ZTEST(protocol_test, parse_byte_stream)
