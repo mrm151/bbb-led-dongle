@@ -13,9 +13,6 @@
 #define SLAB_ALIGNMENT 4
 #define PKT_TIMEOUT_MSEC 100
 
-#define TX_BUF_SLAB_BLOCK_SIZE sizeof(struct protocol_buf)
-#define TX_BUF_SLAB_BLOCK_COUNT 12
-
 #define RX_BUF_SLAB_BLOCK_SIZE 360
 #define RX_BUF_SLAB_BLOCK_COUNT 12
 
@@ -27,9 +24,9 @@ K_MEM_SLAB_DEFINE(rx_buf_slab, RX_BUF_SLAB_BLOCK_SIZE, RX_BUF_SLAB_BLOCK_COUNT, 
 
 LOG_MODULE_REGISTER(bbbled_protocol, LOG_LEVEL_DBG);
 
-enum valid_command to_enum(char *str)
+command_t to_enum(char *str)
 {
-    enum valid_command command = INVALID;
+    command_t command = INVALID;
     for (int i = 0; i < NUM_COMMANDS; ++i)
     {
         if (strcmp(valid_commands_str[i], str) == 0)
@@ -42,7 +39,7 @@ enum valid_command to_enum(char *str)
 }
 
 
-char* to_string (enum valid_command command)
+char* to_string (command_t command)
 {
     switch (command)
     {
@@ -185,7 +182,7 @@ serialise_ret_t serialise_packet(struct protocol_data_pkt *pkt)
 
     // Copy params e.g "<key>:<value>," into buf
     char pair[PROTOCOL_MAX_KEY_LEN + PROTOCOL_MAX_VALUE_LEN + 2] = {0};
-    for (int index = 0; index < pkt->num_params; ++index)
+    for (uint8_t index = 0; index < pkt->num_params; ++index)
     {
         key_len = strlen(pkt->params[index].key);
         value_len = strlen(pkt->params[index].value);
@@ -292,7 +289,7 @@ static int verify_crc(const uint8_t* bytes, size_t len)
     return -1;
 }
 
-int validate_params_for_command(enum valid_command command, struct key_val_pair *pair)
+int validate_params_for_command(command_t command, struct key_val_pair *pair)
 {
     char *end;
 
@@ -300,7 +297,7 @@ int validate_params_for_command(enum valid_command command, struct key_val_pair 
     switch (command)
     {
         case SET_RGB:
-            for (int index = 0; index < STATIC_STR_ARRAY_LEN(valid_params_set_rgb); ++index)
+            for (uint8_t index = 0; index < STATIC_STR_ARRAY_LEN(valid_params_set_rgb); ++index)
             {
                 if (strcmp(valid_params_set_rgb[index], pair->key) == 0)
                 {
@@ -313,6 +310,8 @@ int validate_params_for_command(enum valid_command command, struct key_val_pair 
                 }
             }
             break;
+        case ACK:
+            return 0;
         default:
             LOG_WRN("unrecognised command : %d", command);
             break;
@@ -326,7 +325,7 @@ parser_ret_t parse_tokens(
     size_t len,
     struct protocol_data_pkt *dest_pkt)
 {
-    enum valid_command command = INVALID;
+    command_t command = INVALID;
     char key[PROTOCOL_MAX_KEY_LEN];
     char value[PROTOCOL_MAX_VALUE_LEN];
     struct key_val_pair pairs[PROTOCOL_MAX_PARAMS];
@@ -334,7 +333,7 @@ parser_ret_t parse_tokens(
     uint16_t msg_num = -1;
     struct protocol_data_pkt *pkt;
 
-    for (int index = 0; index < PROTOCOL_VALID_COMMANDS; ++index)
+    for (uint8_t index = 0; index < PROTOCOL_VALID_COMMANDS; ++index)
     {
         // The command should always be the first member in the array
         if (strcmp(token_array[0], valid_commands_str[index]) == 0)
@@ -354,7 +353,7 @@ parser_ret_t parse_tokens(
     // for this command
 
     // Start at 1; 0 is already processed
-    for (int index = 1; index < len; ++index)
+    for (uint8_t index = 1; index < len; ++index)
     {
         char *key_end = strchr(token_array[index], protocol_key_value_sep);
 

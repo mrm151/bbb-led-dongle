@@ -8,7 +8,6 @@
 extern "C" {
 #endif
 
-#define PROTOCOL_VERSION 1
 #define PROTOCOL_MAX_PARAMS 8
 #define PROTOCOL_MAX_KEY_LEN 16
 #define PROTOCOL_MAX_VALUE_LEN 16
@@ -33,11 +32,13 @@ static const uint8_t protocol_item_sep = ',';
 static const uint8_t protocol_crc = '#';
 
 
-enum valid_command {
+typedef enum {
     SET_RGB = 0,
     NUM_COMMANDS,
-    INVALID
-};
+    ACK,
+    NACK,
+    INVALID,
+} command_t;
 
 typedef enum {
     PARSING_OK = 0,
