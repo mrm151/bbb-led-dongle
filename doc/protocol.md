@@ -29,6 +29,44 @@ The protocol operates as follows:
     * If the packet is a NACK, keep whatever packet we have in the outgoing queue, and make sure we send it again
 3. Send packets from the outgoing queue.
 
+## Initialisation
+To initialise an instance of the protocol, you must call the `protocol_init` function.
+
+`protocol_init`
+
 
 ## Parsing
+```
+parser_ret_t parse(protocol_ctx_t ctx)
+```
+
 As described above, the parser has a few different functions.
+
+### Receiving data
+When receiving data, the parser needs to construct an ack to go into the outgoing queue and parse data received into a C struct so that the user can interact with it.
+
+Detailed process:
+* Parse packet
+* Obtain msg number
+* Create ACK with msg number
+* Add ack to outgoing queue
+* Put received packet params into context for user access
+
+### Receiving ACK
+When receiving an ACK, the parser needs to check the outgoing queue to see if there is a packet with a matching message number, and pop it.
+
+Process:
+* Parse packet = ACK
+* obtain msg number
+* compare msg number with front of queue
+* pop front of queue
+* deallocate packet
+
+### Receiving NACK
+When receiving a NACK, the parser needs to resend the packet with the matching msg number
+
+### Timeout
+One additional function is the timeout - ACKs and NACKs are responses which give an idea that the packet is parsable, but data is incorrect. What happens if we get no response?
+
+This shouldn't be handled by the parsing function.
+
