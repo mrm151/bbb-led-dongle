@@ -46,6 +46,7 @@ typedef enum {
     INVALID_PREAMBLE,
     INVALID_CRC,
     INVALID_TOKENS,
+    INVALID_CMD,
 } parser_ret_t;
 
 typedef enum {
@@ -82,6 +83,12 @@ struct key_val_pair{
 };
 
 
+typedef struct {
+    command_t command;
+    struct key_val_pair params[PROTOCOL_MAX_PARAMS];
+    size_t num_params;
+} parsed_data_t;
+
 /**
  * @brief Packet structure for the protocol. Each packet should include:
  * @param   command     :   the command being sent (e.g brightness/rainbow/sleep)
@@ -101,11 +108,15 @@ struct protocol_data_pkt {
 
 typedef struct k_queue* queue_t;
 
+typedef void (*timer_cb_t)(struct k_timer *);
+
 typedef struct {
     uint8_t *rx_buf;
     size_t rx_len;
     queue_t outbox;
     struct protocol_data_pkt *latest;
+    timer_cb_t timer_expired;
+    uint8_t retry_attempts;
 } protocol_ctx_obj_t;
 
 typedef protocol_ctx_obj_t* protocol_ctx_t;
@@ -127,7 +138,7 @@ protocol_ctx_t protocol_init(
     size_t buffer_size,
     struct k_queue *queue);
 
-parser_ret_t parse(protocol_ctx_t ctx);
+parser_ret_t parse(protocol_ctx_t ctx, parsed_data_t *data);
 
 const size_t calc_rq_buf_size(struct protocol_data_pkt *pkt);
 

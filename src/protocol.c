@@ -17,7 +17,6 @@
 K_MEM_SLAB_DEFINE(protocol_pkt_slab, PKT_SLAB_BLOCK_SIZE, PKT_SLAB_BLOCK_COUNT, SLAB_ALIGNMENT);
 
 
-
 LOG_MODULE_REGISTER(bbbled_protocol, LOG_LEVEL_DBG);
 
 command_t to_enum(char *str)
@@ -61,6 +60,7 @@ protocol_ctx_t protocol_init(
     this->rx_buf = buffer;
     this->rx_len = buffer_size;
     this->latest = NULL;
+    this->retry_attempts = PROTOCOL_MAX_MSG_RETRIES;
 
     return this;
 }
@@ -334,9 +334,10 @@ int validate_params_for_command(
     return -1;
 }
 
-struct protocol_data_pkt* parse_tokens(
+parser_ret_t parse_tokens(
     char token_array[][PROTOCOL_MAX_TOKEN_LEN],
-    size_t len)
+    size_t len,
+    parsed_data_t *data)
 {
     command_t command = INVALID;
     char key[PROTOCOL_MAX_KEY_LEN];
@@ -357,7 +358,7 @@ struct protocol_data_pkt* parse_tokens(
     if (command == INVALID)
     {
         LOG_ERR("command invalid");
-        return NULL;
+        return INVALID_CMD;
     }
 
     // we have a valid command
@@ -398,7 +399,7 @@ struct protocol_data_pkt* parse_tokens(
             }
             else if (validate_params_for_command(command, &pair) == 0)
             {
-                pairs[pair_index] = pair;
+                data->params[pair_index] = pair;
                 ++pair_index;
             }
             else
@@ -407,7 +408,9 @@ struct protocol_data_pkt* parse_tokens(
             }
         }
     }
-    return protocol_packet_create(to_string(command), pairs, pair_index, msg_num);
+    data->command = command;
+    data->num_params = pair_index;
+    return PARSING_OK;
 }
 
 uint8_t tokeniser(
@@ -461,7 +464,7 @@ uint8_t tokeniser(
  *
  * @return  A protocol packet if the stream is valid, NULL otherwise
  */
-parser_ret_t parse(protocol_ctx_t ctx)
+parser_ret_t parse(protocol_ctx_t ctx, parsed_data_t *data)
 {
     char id;
     char *csv;
@@ -494,17 +497,7 @@ parser_ret_t parse(protocol_ctx_t ctx)
     csv = (char*) (ctx->rx_buf + 1);
     num_tokens = tokeniser(csv, ctx->rx_len - 1, token_array);
 
-    /*  Create a packet */
-    pkt = parse_tokens(token_array, num_tokens);
-    if (pkt)
-    {
-        ctx->latest = pkt;
-        return PARSING_OK;
-    };
-
-    LOG_DBG("pkt is null");
-
-    return INVALID_TOKENS;
+    return parse_tokens(token_array, num_tokens, data);
 }
 
 

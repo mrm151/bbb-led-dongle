@@ -5,9 +5,6 @@
 #include <stdlib.h>
 #include <zephyr/kernel.h>
 
-#define SMALL_SLAB_BLOCK_SIZE 64
-
-K_MEM_SLAB_DEFINE(slab_too_small, 1, 1, 4);
 
 LOG_MODULE_REGISTER(protocol_test, LOG_LEVEL_DBG);
 
@@ -36,6 +33,14 @@ static struct key_val_pair test_params_too_large[PROTOCOL_MAX_PARAMS] = {
 static char* test_command = "dummy_command";
 
 static struct protocol_ctx *initialised_ctx = {0};
+
+const uint8_t byte_stream_valid[] = "!set_rgb,key:value,red:255,green:11,msg:0#cb7a";
+static const int num_valid_params = 2;
+static struct key_val_pair byte_stream_valid_params[2] = {
+    {.key = "red", .value = "255"},
+    {.key = "green", .value = "11"},
+};
+
 
 // ZTEST(protocol_test, initialise_context)
 // {
@@ -113,30 +118,24 @@ ZTEST(protocol_test, create_packet_normal)
 
 ZTEST(protocol_test, parse_byte_stream)
 {
-    const uint8_t test_serialised_pkt_bad[] = "!set_rgb,key:value,red:255,green:11,msg:0#cb7a";
     protocol_ctx_obj_t obj;
     protocol_ctx_t ctx;
     struct k_queue q;
+    parsed_data_t data;
 
-    ctx = protocol_init(&obj, test_serialised_pkt_bad, sizeof(test_serialised_pkt_bad), &q);
+    ctx = protocol_init(&obj, byte_stream_valid, sizeof(byte_stream_valid), &q);
 
     LOG_DBG("Initialised");
-    parse(ctx);
+    parse(ctx, &data);
 
-    if (ctx->latest == NULL)
+
+    zassert_equal(SET_RGB, data.command);
+    LOG_DBG("good");
+    for (int i = 0; i < num_valid_params; ++i)
     {
-        LOG_DBG("null");
+        zassert_str_equal(byte_stream_valid_params[i].key, data.params[i].key, "data.params[%d].key = %s", i, data.params[i].key);
+        zassert_str_equal(byte_stream_valid_params[i].value, data.params[i].value, "data.params[%d].value = %s", i, data.params[i].value);
     }
-    LOG_DBG("OK");
-
-    LOG_DBG("pkt exists??? ptr is: %p", ctx->latest);
-
-    zassert_str_equal("set_rgb", ctx->latest->command);
-    zassert_str_equal("red", ctx->latest->params[0].key, "ctx->latest->params[0].key = %s", ctx->latest->params[0].key);
-    zassert_str_equal("255", ctx->latest->params[0].value);
-    zassert_str_equal("green", ctx->latest->params[1].key, "ctx->latest->params[1].key = %s", ctx->latest->params[1].key);
-    zassert_str_equal("11", ctx->latest->params[1].value);
-
     // char* token;
     // k_stack_pop(&token_stack, (stack_data_t *)token, K_NO_WAIT);
     // LOG_INF("token: %s", token);
