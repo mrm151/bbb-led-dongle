@@ -1,4 +1,5 @@
 # A string-based protocol to be used with communication interfaces
+
 There is no real need for this protocol in this project. The data being sent is not particularly critical, as it is just dealing with LEDs. However I thought it would be a good learning experience for me.
 
 ## The basis
@@ -34,6 +35,9 @@ To initialise an instance of the protocol, you must call the `protocol_init` fun
 
 `protocol_init`
 
+The user must supply their own context object, outgoing queue and input buffer and size.
+
+The init function will populate the context object and return it.
 
 ## Parsing
 ```
@@ -56,7 +60,8 @@ Detailed process:
 When receiving an ACK, the parser needs to check the outgoing queue to see if there is a packet with a matching message number, and pop it.
 
 Process:
-* Parse packet = ACK
+* Parse packet
+* check if command = ACK
 * obtain msg number
 * compare msg number with front of queue
 * pop front of queue
@@ -65,8 +70,25 @@ Process:
 ### Receiving NACK
 When receiving a NACK, the parser needs to resend the packet with the matching msg number
 
-### Timeout
+### Expected behaviour (black box)
+#### Good weather
+* Pass a valid byte stream into the parser
+* Expect ACK on outgoing queue
+* Expect ACK msg number to be same as received data
+
+#### Stormy weather
+* Pass an invalid byte stream into the parser
+* Expect NACK on outgoing queue
+* Expect NACK msg number to be same as received data (if we can read it)
+
+## Timeout
 One additional function is the timeout - ACKs and NACKs are responses which give an idea that the packet is parsable, but data is incorrect. What happens if we get no response?
 
-This shouldn't be handled by the parsing function.
+When we send a message a timer should be started.
+When we receive a message which is an ACK, which corresponds to the msg number we sent, we should stop the timer.
+<!-- Currently all packets are created as protocol_data_pkt structs. I think it would be a good idea to make this a general packet, ie a
+
+`protocol_pkt_t`
+
+which includes a `pkt_type_t` enum defining what the packet is. Then we can piggyback off the enum and use different `create_pkt` functions based on the pkt type. E.g when parsing instead of just calling the `protocol_pkt_create` function we would call `create_ack`, `create_nack` or `create_data`. -->
 
