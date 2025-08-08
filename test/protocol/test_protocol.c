@@ -9,11 +9,11 @@
 LOG_MODULE_REGISTER(protocol_test, LOG_LEVEL_DBG);
 
 static const uint8_t expected_serialised_pkt[] =
-    "!dummy_command,brightnesssssss:200000000000000,red:122,blue:242,green:1,pulse:2,gradient:10,hello:67,goodbaye:69,msg:11111#1931";
+    "!set_rgb,brightnesssssss:200000000000000,red:122,blue:242,green:1,pulse:2,gradient:10,hello:67,goodbaye:69,msg:11111#e9e1";
 
 static const size_t expected_serialised_pkt_bytes = 128;
 
-static const uint16_t expected_crc = 0x1931;
+static const uint16_t expected_crc = 0xe9e1;
 
 static struct key_val_pair test_params[PROTOCOL_MAX_PARAMS] = {
     {.key = "brightnesssssss", .value = "200000000000000"},
@@ -30,11 +30,13 @@ static struct key_val_pair test_params_too_large[PROTOCOL_MAX_PARAMS] = {
     {.key = "brightnessssssss", .value = "2000000000000000"},
 };
 
-static char* test_command = "dummy_command";
+static command_t test_command = SET_RGB;
+static const char test_command_str[] = "set_rgb";
 
 static struct protocol_ctx *initialised_ctx = {0};
 
-const uint8_t byte_stream_valid[] = "!set_rgb,key:value,red:255,green:11,msg:0#cb7a";
+const uint8_t byte_stream_valid[] = "!set_rgb,key:value,red:255,green:11,msg:10#2aaa";
+const uint8_t byte_stream_valid_msg_num = 0;
 static const int num_valid_params = 2;
 static struct key_val_pair byte_stream_valid_params[2] = {
     {.key = "red", .value = "255"},
@@ -60,7 +62,7 @@ ZTEST(protocol_test, serialise_packet_normal)
         pkt.params[i] = test_params[i];
     }
 
-    pkt.command = test_command;
+    memcpy(pkt.command, test_command_str, sizeof(test_command_str));
     pkt.num_params = PROTOCOL_MAX_PARAMS;
     pkt.msg_num = (uint16_t)11111;
 
@@ -86,7 +88,7 @@ ZTEST(protocol_test, serialise_packet_params_large)
 
 
     memcpy(pkt.params, test_params_too_large, sizeof(test_params_too_large));
-    pkt.command = test_command;
+    memcpy(pkt.command, test_command_str, sizeof(test_command_str));
     pkt.num_params = PROTOCOL_MAX_PARAMS;
 
     size_t data_buf_size = calc_rq_buf_size(&pkt);
@@ -106,7 +108,7 @@ ZTEST(protocol_test, create_packet_normal)
     pkt = protocol_packet_create(test_command, test_params, PROTOCOL_MAX_PARAMS, -1);
 
     zassert_not_null(pkt);
-    zassert_str_equal(test_command, pkt->command);
+    zassert_str_equal(test_command_str, pkt->command);
 
     for (int i = 0; i < PROTOCOL_MAX_PARAMS; ++i)
     {
@@ -120,25 +122,40 @@ ZTEST(protocol_test, parse_byte_stream)
 {
     protocol_ctx_obj_t obj;
     protocol_ctx_t ctx;
-    struct k_queue q;
+    struct ring_buf ring;
+    struct protocol_data_pkt *pkt_ptrs[8];
     parsed_data_t data;
 
-    ctx = protocol_init(&obj, byte_stream_valid, sizeof(byte_stream_valid), &q);
+    ctx = protocol_init(&obj, byte_stream_valid, sizeof(byte_stream_valid), &ring, pkt_ptrs, 8);
 
-    LOG_DBG("Initialised");
     parse(ctx, &data);
 
 
     zassert_equal(SET_RGB, data.command);
-    LOG_DBG("good");
+
     for (int i = 0; i < num_valid_params; ++i)
     {
         zassert_str_equal(byte_stream_valid_params[i].key, data.params[i].key, "data.params[%d].key = %s", i, data.params[i].key);
         zassert_str_equal(byte_stream_valid_params[i].value, data.params[i].value, "data.params[%d].value = %s", i, data.params[i].value);
     }
-    // char* token;
-    // k_stack_pop(&token_stack, (stack_data_t *)token, K_NO_WAIT);
-    // LOG_INF("token: %s", token);
+
+    uint16_t type;
+    uint8_t value;
+    struct protocol_data_pkt *ack;
+    uint8_t item_size = RING_BUF_ITEM_SIZEOF(struct protocol_data_pkt*);
+
+    LOG_DBG("retrieving item");
+    int ret = ring_buf_item_get(ctx->outbox, &type, &value, (uint32_t*)&ack, &item_size);
+    LOG_DBG("RETURN: %d", ret);
+
+
+    LOG_DBG("msg num: %d", ack->msg_num);
+    LOG_DBG("command: %s", ack->command);
+    LOG_DBG("crc: %04x", ack->crc);
+
+
+    // zassert_str_equal(ack.command, "ack");
+    // zassert_equal(ctx->latest->msg_num, byte_stream_valid_msg_num);
 }
 
 

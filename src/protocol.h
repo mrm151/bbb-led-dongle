@@ -3,6 +3,7 @@
 
 #include <zephyr/types.h>
 #include <zephyr/kernel.h>
+#include <zephyr/sys/ring_buffer.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -22,7 +23,14 @@ extern "C" {
 // Maximum number of params + command and msg number
 #define PROTOCOL_MAX_NUM_TOKENS (PROTOCOL_MAX_PARAMS + 2)
 #define PROTOCOL_VALID_COMMANDS 1
+
+/* Helpful macros */
+
+// Find how many items are in an array
 #define STATIC_STR_ARRAY_LEN(array) (sizeof(array) / sizeof(*array))
+
+// Find the length between two pointers
+#define LEN(end, start) ((end) - (start))
 
 static const char* protocol_msg_identifier = "msg";
 
@@ -34,9 +42,9 @@ static const uint8_t protocol_crc = '#';
 
 typedef enum {
     SET_RGB = 0,
-    NUM_COMMANDS,
     ACK,
     NACK,
+    NUM_COMMANDS,
     INVALID,
 } command_t;
 
@@ -61,14 +69,24 @@ typedef enum {
 typedef uint16_t crc_t;
 
 
-static const char* valid_commands_str[] = {
+static const char *valid_commands_str[] = {
     "set_rgb",
+    "ack",
+    "nack",
 };
 
-static const char* valid_params_set_rgb[] = {
+static const char *valid_params_set_rgb[] = {
     "red",
     "green",
     "blue"
+};
+
+static const char *valid_params_ack[] = {
+    NULL
+};
+
+static const char *valid_params_nack[] = {
+    NULL
 };
 
 enum pkt_type {
@@ -97,7 +115,7 @@ typedef struct {
  * @param   crc         :   the crc for the data
  */
 struct protocol_data_pkt {
-    char *command;
+    char command[PROTOCOL_MAX_CMD_LEN];
     struct key_val_pair params[PROTOCOL_MAX_PARAMS];
     size_t num_params;
     uint16_t msg_num;
@@ -106,14 +124,14 @@ struct protocol_data_pkt {
     crc_t crc; // CRC checksum for the message
 };
 
-typedef struct k_queue* queue_t;
+typedef struct ring_buf* ring_buf_t;
 
 typedef void (*timer_cb_t)(struct k_timer *);
 
 typedef struct {
     uint8_t *rx_buf;
     size_t rx_len;
-    queue_t outbox;
+    ring_buf_t outbox;
     struct protocol_data_pkt *latest;
     timer_cb_t timer_expired;
     uint8_t retry_attempts;
@@ -123,7 +141,7 @@ typedef protocol_ctx_obj_t* protocol_ctx_t;
 
 
 struct protocol_data_pkt* protocol_packet_create(
-    char* command,
+    command_t command,
     struct key_val_pair *params,
     size_t num_params,
     uint16_t msg_num);
@@ -136,7 +154,9 @@ protocol_ctx_t protocol_init(
     protocol_ctx_obj_t *ctx,
     uint8_t *buffer,
     size_t buffer_size,
-    struct k_queue *queue);
+    struct ring_buf *ring,
+    void *ring_data,
+    uint32_t data_size);
 
 parser_ret_t parse(protocol_ctx_t ctx, parsed_data_t *data);
 
