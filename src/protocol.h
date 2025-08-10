@@ -128,7 +128,8 @@ struct protocol_data_pkt {
 
 typedef struct ring_buf* ring_buf_t;
 
-typedef void (*timer_cb_t)(struct k_timer *);
+typedef struct k_timer* timer_t;
+typedef void (*timer_cb_t)(timer_t);
 
 typedef struct {
     uint8_t *rx_buf;
