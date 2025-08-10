@@ -49,12 +49,13 @@ typedef enum {
 } command_t;
 
 typedef enum {
-    PARSING_OK = 0,
-    INVALID_BYTE_STREAM,
-    INVALID_PREAMBLE,
-    INVALID_CRC,
-    INVALID_TOKENS,
-    INVALID_CMD,
+    PARSER_OK = 0,
+    PARSER_INVALID_BYTES,
+    PARSER_INVALID_PREAMBLE,
+    PARSER_INVALID_CRC,
+    PARSER_INVALID_MSG_NUM,
+    PARSER_INVALID_CMD,
+    PARSER_INVALID_PARAMS,
 } parser_ret_t;
 
 typedef enum {
@@ -122,6 +123,7 @@ struct protocol_data_pkt {
     uint8_t *data;
     size_t data_len;
     crc_t crc; // CRC checksum for the message
+    bool resend;
 };
 
 typedef struct ring_buf* ring_buf_t;
@@ -131,8 +133,7 @@ typedef void (*timer_cb_t)(struct k_timer *);
 typedef struct {
     uint8_t *rx_buf;
     size_t rx_len;
-    ring_buf_t outbox;
-    struct protocol_data_pkt *latest;
+    struct protocol_data_pkt *to_send;
     timer_cb_t timer_expired;
     uint8_t retry_attempts;
 } protocol_ctx_obj_t;
@@ -153,12 +154,17 @@ int protocol_ctx_init_pkt(protocol_ctx_t ctx, char* command, struct key_val_pair
 protocol_ctx_t protocol_init(
     protocol_ctx_obj_t *ctx,
     uint8_t *buffer,
-    size_t buffer_size,
-    struct ring_buf *ring,
-    void *ring_data,
-    uint32_t data_size);
+    size_t buffer_size);
 
-parser_ret_t parse(protocol_ctx_t ctx, parsed_data_t *data);
+parser_ret_t parse(
+    char *str,
+    size_t len,
+    parsed_data_t *data,
+    uint16_t *msg_num);
+
+void handle_incoming(
+    protocol_ctx_t ctx,
+    parsed_data_t *data);
 
 const size_t calc_rq_buf_size(struct protocol_data_pkt *pkt);
 

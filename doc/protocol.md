@@ -3,18 +3,18 @@
 There is no real need for this protocol in this project. The data being sent is not particularly critical, as it is just dealing with LEDs. However I thought it would be a good learning experience for me.
 
 ## The basis
-As per the title, this protocol is a string based protocol. An example packet is shown below:
+This is a simple stop and wait ARQ string protocol. An example packet is shown below:
 
 ```
-"!command,key0:value0,key1:value1,msg:0#1234"
+"!set_rgb,red:0,green:127,blue:127,msg:0#1234"
 ```
 
 Each packet is composed of:
 * A preamble/identifier ("!")
-* A command ("command")
+* A command ("set_rgb")
 * A list of key:value pairs which are compatible with the command
 * A 16-bit msg number to identify the msg ("msg:0")
-* A 16-bit ccitt CRC ("1234"), computed from the start of the packet up to the start of the CRC ("!" to "#")
+* A 16-bit ccitt CRC ("1234"), computed from the start of the packet up to and including the start of the CRC ("!" to "#")
 
 The packet is base64 encoded.
 

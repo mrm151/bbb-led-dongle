@@ -35,13 +35,15 @@ static const char test_command_str[] = "set_rgb";
 
 static struct protocol_ctx *initialised_ctx = {0};
 
-const uint8_t byte_stream_valid[] = "!set_rgb,key:value,red:255,green:11,msg:10#2aaa";
+const uint8_t byte_stream_valid[] = "!set_rgb,red:255,green:11,msg:10#2d0d";
 const uint8_t byte_stream_valid_msg_num = 0;
 static const int num_valid_params = 2;
 static struct key_val_pair byte_stream_valid_params[2] = {
     {.key = "red", .value = "255"},
     {.key = "green", .value = "11"},
 };
+
+
 
 
 // ZTEST(protocol_test, initialise_context)
@@ -118,17 +120,15 @@ ZTEST(protocol_test, create_packet_normal)
     zassert_equal(PROTOCOL_MAX_PARAMS, pkt->num_params);
 }
 
-ZTEST(protocol_test, parse_byte_stream)
+ZTEST(protocol_test, parse_data)
 {
     protocol_ctx_obj_t obj;
     protocol_ctx_t ctx;
-    struct ring_buf ring;
-    struct protocol_data_pkt *pkt_ptrs[8];
     parsed_data_t data;
 
-    ctx = protocol_init(&obj, byte_stream_valid, sizeof(byte_stream_valid), &ring, pkt_ptrs, 8);
+    ctx = protocol_init(&obj, byte_stream_valid, sizeof(byte_stream_valid));
 
-    parse(ctx, &data);
+    handle_incoming(ctx, &data);
 
 
     zassert_equal(SET_RGB, data.command);
@@ -139,24 +139,30 @@ ZTEST(protocol_test, parse_byte_stream)
         zassert_str_equal(byte_stream_valid_params[i].value, data.params[i].value, "data.params[%d].value = %s", i, data.params[i].value);
     }
 
-    uint16_t type;
-    uint8_t value;
-    struct protocol_data_pkt *ack;
-    uint8_t item_size = RING_BUF_ITEM_SIZEOF(struct protocol_data_pkt*);
-
-    LOG_DBG("retrieving item");
-    int ret = ring_buf_item_get(ctx->outbox, &type, &value, (uint32_t*)&ack, &item_size);
-    LOG_DBG("RETURN: %d", ret);
-
-
-    LOG_DBG("msg num: %d", ack->msg_num);
-    LOG_DBG("command: %s", ack->command);
-    LOG_DBG("crc: %04x", ack->crc);
-
-
-    // zassert_str_equal(ack.command, "ack");
-    // zassert_equal(ctx->latest->msg_num, byte_stream_valid_msg_num);
+    zassert(ctx->to_send != NULL, "No packet queued");
+    zassert_str_equal(ctx->to_send->command, "ack", "ctx->to_send->command = %s", ctx->to_send->command);
+    zassert_equal(ctx->to_send->msg_num, 10);
 }
 
+ZTEST(protocol_test, parse_ack)
+{
+    protocol_ctx_obj_t obj;
+    protocol_ctx_t ctx;
+    struct protocol_data_pkt *pkt;
+
+    pkt = protocol_packet_create(SET_RGB, NULL, 0, 11);
+    LOG_DBG("pkt is at address %p", pkt);
+
+    parsed_data_t data;
+
+    static const uint8_t byte_stream[] = "!ack,msg:11#4a4d";
+
+    ctx = protocol_init(&obj, byte_stream, sizeof(byte_stream));
+    ctx->to_send = pkt;
+
+    handle_incoming(ctx, &data);
+
+    zassert_is_null(ctx->to_send);
+}
 
 ZTEST_SUITE(protocol_test, NULL, NULL, NULL, NULL, NULL);
