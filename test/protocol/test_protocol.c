@@ -151,7 +151,6 @@ ZTEST(protocol_test, parse_ack)
     struct protocol_data_pkt *pkt;
 
     pkt = protocol_packet_create(SET_RGB, NULL, 0, 11);
-    LOG_DBG("pkt is at address %p", pkt);
 
     parsed_data_t data;
 

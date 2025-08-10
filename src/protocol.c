@@ -21,6 +21,7 @@ K_MEM_SLAB_DEFINE(protocol_pkt_slab, PKT_SLAB_BLOCK_SIZE, PKT_SLAB_BLOCK_COUNT, 
 
 LOG_MODULE_REGISTER(bbbled_protocol, LOG_LEVEL_DBG);
 
+
 command_t to_enum(char *str)
 {
     command_t command = INVALID;
@@ -65,16 +66,6 @@ protocol_ctx_t protocol_init(
     this->retry_attempts = PROTOCOL_MAX_MSG_RETRIES;
 
     return this;
-}
-
-static void protocol_pkt_dealloc(protocol_ctx_t ctx)
-{
-    LOG_DBG("deallocating pkt %p", &ctx->to_send);
-    if (ctx->to_send)
-    {
-        k_mem_slab_free(&protocol_pkt_slab, &ctx->to_send);
-        ctx->to_send = NULL;
-    }
 }
 
 /**
@@ -499,14 +490,10 @@ parser_ret_t parse(
 
 void remove_packet(protocol_ctx_t ctx, uint16_t msg_num)
 {
-    LOG_DBG("removing pkt");
-    if (ctx->to_send)
+    if (ctx->to_send && ctx->to_send->msg_num == msg_num)
     {
-        if (ctx->to_send->msg_num == msg_num)
-        {
-            LOG_DBG("DALLOCATING");
-            protocol_pkt_dealloc(ctx->to_send);
-        }
+        k_mem_slab_free(&protocol_pkt_slab, ctx->to_send);
+        ctx->to_send = NULL;
     }
 }
 
@@ -611,7 +598,13 @@ struct protocol_data_pkt* protocol_packet_create(
     size_t written = 0;
     struct key_val_pair param;
 
-    k_mem_slab_alloc(&protocol_pkt_slab, (void **)&pkt, K_NO_WAIT);
+    int rc = k_mem_slab_alloc(&protocol_pkt_slab, (void **)&pkt, K_FOREVER);
+    if (rc)
+    {
+        LOG_ERR("slab memory allocation failed");
+        return NULL;
+    }
+
     memset(pkt, 0, sizeof(struct protocol_data_pkt));
 
     for (uint8_t index = 0; index < num_params; ++index)
