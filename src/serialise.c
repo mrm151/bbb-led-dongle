@@ -33,8 +33,8 @@ void serialise_uint16t_dec(serial_ctx_t ctx, void *data)
     uint8_t str_size_16bit_dec = 6;
     char dec_str[str_size_16bit_dec];
 
-    snprintf(dec_str, str_size_16bit_dec, "%d", dec);
-    write_to_buffer(ctx->buffer + ctx->bytes_written, dec_str, &ctx->bytes_written, str_size_16bit_dec);
+    int written = snprintf(dec_str, str_size_16bit_dec, "%d", dec);
+    write_to_buffer(ctx->buffer + ctx->bytes_written, dec_str, &ctx->bytes_written, written);
 }
 
 void serialise_uint16t_hex(serial_ctx_t ctx, void *data)
@@ -43,8 +43,8 @@ void serialise_uint16t_hex(serial_ctx_t ctx, void *data)
     uint8_t str_size_16bit_hex = 5;
     char hex_str[str_size_16bit_hex];
 
-    snprintf(hex_str, str_size_16bit_hex, "%04x", hex);
-    write_to_buffer(ctx->buffer + ctx->bytes_written, hex_str, &ctx->bytes_written, str_size_16bit_hex);
+    int written = snprintf(hex_str, str_size_16bit_hex, "%04x", hex);
+    write_to_buffer(ctx->buffer + ctx->bytes_written, hex_str, &ctx->bytes_written, written);
 }
 
 void serialise_str(serial_ctx_t ctx, void *data)

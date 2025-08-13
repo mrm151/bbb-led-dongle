@@ -60,7 +60,7 @@ ZTEST(serialise_test, hex_str)
     serialise_uint16t_hex(&ctx, &hex);
     zassert_str_equal("1234", ctx.buffer);
     zassert_equal(0, ctx.buffer[5]);
-    zassert_equal(5, ctx.bytes_written);
+    zassert_equal(4, ctx.bytes_written);
 }
 
 ZTEST(serialise_test, dec_str)
@@ -74,7 +74,36 @@ ZTEST(serialise_test, dec_str)
     serialise_uint16t_dec(&ctx, &dec);
     zassert_str_equal("12345", ctx.buffer);
     zassert_equal(0, ctx.buffer[6]);
-    zassert_equal(6, ctx.bytes_written);
+    zassert_equal(5, ctx.bytes_written);
+}
+
+ZTEST(serialise_test, multiple)
+{
+    uint8_t buffer[512] = {0};
+    struct serial_ctx ctx;
+    char *command = "command";
+    char *padding = ",";
+    char *msg = "msg";
+    char *padding_sep =  ":";
+    uint16_t dec = 12345;
+    char *padding_crc = "#";
+    uint16_t hex = 0x1234;
+
+    char *expected = "command,msg:12345#1234";
+
+    serialise_ctx_init(&ctx, buffer, 512, NULL);
+
+    serialise_str(&ctx, command);
+    serialise_padding_char(&ctx, padding);
+    serialise_str(&ctx, msg);
+    serialise_padding_char(&ctx, padding_sep);
+    serialise_uint16t_dec(&ctx, &dec);
+    serialise_padding_char(&ctx, padding_crc);
+    serialise_uint16t_hex(&ctx, &hex);
+
+    zassert_str_equal(expected, ctx.buffer);
+    zassert_equal(strlen(expected), ctx.bytes_written);
+    zassert_equal(0, ctx.buffer[strlen(expected)]);
 }
 
 ZTEST_SUITE(serialise_test, NULL, NULL, NULL, NULL, NULL);
