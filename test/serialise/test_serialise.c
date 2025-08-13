@@ -1,0 +1,80 @@
+#include <zephyr/ztest.h>
+#include <serialise.h>
+#include <zephyr/logging/log.h>
+#include <errno.h>
+#include <stdlib.h>
+
+
+LOG_MODULE_REGISTER(serialise_test, LOG_LEVEL_DBG);
+
+
+ZTEST(serialise_test, init)
+{
+    uint8_t buffer[512];
+    struct serial_ctx ctx;
+
+    serialise_ctx_init(&ctx, buffer, 512, NULL);
+
+    zassert_not_null(ctx.buffer);
+    zassert_equal(512, ctx.buffer_size);
+    zassert_equal(0, ctx.bytes_written);
+    zassert_equal(0, ctx.cb_index);
+}
+
+ZTEST(serialise_test, padding_char)
+{
+    uint8_t buffer[512] = {0};
+    struct serial_ctx ctx;
+    char *padding = "!";
+
+    serialise_ctx_init(&ctx, buffer, 512, NULL);
+
+    serialise_padding_char(&ctx, padding);
+    zassert_equal('!', ctx.buffer[0]);
+    zassert_equal(0, ctx.buffer[1]);
+    zassert_equal(1, ctx.bytes_written);
+}
+
+ZTEST(serialise_test, string)
+{
+    uint8_t buffer[512] = {0};
+    struct serial_ctx ctx;
+    char *str = "msg";
+
+    serialise_ctx_init(&ctx, buffer, 512, NULL);
+
+    serialise_str(&ctx, str);
+    zassert_str_equal(str, ctx.buffer);
+    zassert_equal(0, ctx.buffer[strlen(str)]);
+    zassert_equal(3, ctx.bytes_written);
+}
+
+ZTEST(serialise_test, hex_str)
+{
+    uint8_t buffer[512] = {0};
+    struct serial_ctx ctx;
+    uint16_t hex = 0x1234;
+
+    serialise_ctx_init(&ctx, buffer, 512, NULL);
+
+    serialise_uint16t_hex(&ctx, &hex);
+    zassert_str_equal("1234", ctx.buffer);
+    zassert_equal(0, ctx.buffer[5]);
+    zassert_equal(5, ctx.bytes_written);
+}
+
+ZTEST(serialise_test, dec_str)
+{
+    uint8_t buffer[512] = {0};
+    struct serial_ctx ctx;
+    uint16_t dec = 12345;
+
+    serialise_ctx_init(&ctx, buffer, 512, NULL);
+
+    serialise_uint16t_dec(&ctx, &dec);
+    zassert_str_equal("12345", ctx.buffer);
+    zassert_equal(0, ctx.buffer[6]);
+    zassert_equal(6, ctx.bytes_written);
+}
+
+ZTEST_SUITE(serialise_test, NULL, NULL, NULL, NULL, NULL);
