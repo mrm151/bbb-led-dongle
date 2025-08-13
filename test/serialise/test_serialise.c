@@ -18,7 +18,7 @@ ZTEST(serialise_test, init)
     zassert_not_null(ctx.buffer);
     zassert_equal(512, ctx.buffer_size);
     zassert_equal(0, ctx.bytes_written);
-    zassert_equal(0, ctx.cb_index);
+    zassert_equal(0, ctx.max_cb_index);
 }
 
 ZTEST(serialise_test, padding_char)
@@ -129,6 +129,49 @@ ZTEST(serialise_test, kv_pairs)
     serialise_ctx_init(&ctx, buffer, 512, NULL);
 
     serialise_key_value_pairs(&ctx, &adapter);
+
+    zassert_str_equal(expected, ctx.buffer);
+    zassert_equal(strlen(expected), ctx.bytes_written);
+}
+
+ZTEST(serialise_test, callbacks)
+{
+    uint8_t buffer[512] = {0};
+    struct serial_ctx ctx;
+
+    struct key_val_pair pairs[3] = {
+        {.key = KEY_RED, .value = 255},
+        {.key = KEY_GREEN, .value = 234},
+        {.key = KEY_BLUE, .value = 123},
+    };
+
+    struct kv_pair_adapter adapter = {
+        .pairs = pairs,
+        .num_pairs = 3,
+        .pair_separator = ':',
+        .pair_terminator = ',',
+    };
+
+    uint16_t dec = 12345;
+    uint16_t hex = 0x1234;
+    struct serial_registry reg[] = {
+        {.handler = serialise_padding_char,     .user_data = "!"},
+        {.handler = serialise_str,              .user_data = "command"},
+        {.handler = serialise_padding_char,     .user_data = ","},
+        {.handler = serialise_key_value_pairs,  .user_data = &adapter},
+        {.handler = serialise_str,              .user_data = "msg"},
+        {.handler = serialise_padding_char,     .user_data = ":"},
+        {.handler = serialise_uint16t_dec,      .user_data = &dec},
+        {.handler = serialise_padding_char,     .user_data = "#"},
+        {.handler = serialise_uint16t_hex,      .user_data = &hex},
+    };
+
+    char *expected = "!command,red:255,green:234,blue:123,msg:12345#1234";
+
+    serialise_ctx_init(&ctx, buffer, 512, NULL);
+
+    serialise_handler_register(&ctx, reg, 9);
+    serialise(&ctx);
 
     zassert_str_equal(expected, ctx.buffer);
     zassert_equal(strlen(expected), ctx.bytes_written);

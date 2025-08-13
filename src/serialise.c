@@ -56,15 +56,24 @@ void serialise_str(serial_ctx_t ctx, void *data)
 
 void serialise_handler_register(serial_ctx_t ctx, struct serial_registry *reg, size_t reg_size)
 {
-    uint8_t max = reg_size + ctx->cb_index;
+    ctx->max_cb_index = reg_size;
 
-    for (uint8_t index = ctx->cb_index; index < max; ++index)
+    for (uint8_t index = 0; index < ctx->max_cb_index; ++index)
     {
         serialise_cb_t *cb = &(_cb_array[index]);
         cb->handler = reg[index].handler;
         cb->user_data = reg[index].user_data;
     }
-    cb_index += reg_size;
+}
+
+void serialise(serial_ctx_t ctx)
+{
+    for (uint8_t index = 0; index < ctx->max_cb_index; ++index)
+    {
+        serialise_cb_t *cb = &(_cb_array[index]);
+        cb->handler(ctx, cb->user_data);
+    }
+    memset(_cb_array, 0, SERIALISE_CALLBACKS_MAX);
 }
 
 void serialise_key_value_pairs(serial_ctx_t ctx, void *data)
@@ -88,7 +97,7 @@ serial_ctx_t serialise_ctx_init(struct serial_ctx *ctx, uint8_t *buffer, size_t 
     this->buffer_size = buffer_size;
     this->bytes_written = 0;
     this->user_data = user_data;
-    this->cb_index = cb_index;
+    this->max_cb_index = 0;
 
     return this;
 }

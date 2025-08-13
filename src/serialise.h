@@ -9,7 +9,7 @@ struct serial_ctx {
     size_t bytes_written;
     size_t buffer_size;
     void *user_data;
-    uint8_t cb_index;
+    uint8_t max_cb_index;
 };
 
 typedef struct serial_ctx* serial_ctx_t;
@@ -44,4 +44,5 @@ void serialise_uint16t_hex(serial_ctx_t ctx, void *data);
 void serialise_str(serial_ctx_t ctx, void *data);
 void serialise_handler_register(serial_ctx_t ctx, struct serial_registry *reg, size_t reg_size);
 void serialise_key_value_pairs(serial_ctx_t ctx, void *data);
+void serialise(serial_ctx_t ctx);
 serial_ctx_t serialise_ctx_init(struct serial_ctx *ctx, uint8_t *buffer, size_t buffer_size, void *user_data);
