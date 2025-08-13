@@ -106,4 +106,32 @@ ZTEST(serialise_test, multiple)
     zassert_equal(0, ctx.buffer[strlen(expected)]);
 }
 
+ZTEST(serialise_test, kv_pairs)
+{
+    uint8_t buffer[512] = {0};
+    struct serial_ctx ctx;
+
+    struct key_val_pair pairs[3] = {
+        {.key = KEY_RED, .value = 255},
+        {.key = KEY_GREEN, .value = 234},
+        {.key = KEY_BLUE, .value = 123},
+    };
+
+    struct kv_pair_adapter adapter = {
+        .pairs = pairs,
+        .num_pairs = 3,
+        .pair_separator = ':',
+        .pair_terminator = ',',
+    };
+
+    char *expected = "red:255,green:234,blue:123,";
+
+    serialise_ctx_init(&ctx, buffer, 512, NULL);
+
+    serialise_key_value_pairs(&ctx, &adapter);
+
+    zassert_str_equal(expected, ctx.buffer);
+    zassert_equal(strlen(expected), ctx.bytes_written);
+}
+
 ZTEST_SUITE(serialise_test, NULL, NULL, NULL, NULL, NULL);

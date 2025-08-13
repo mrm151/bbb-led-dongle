@@ -2,6 +2,7 @@
 #include <zephyr/sys/util.h>
 #include <string.h>
 #include <zephyr/kernel.h>
+#include <stdlib.h>
 
 /**
  * Global array of str/enum values for all the accepted commands
@@ -152,7 +153,7 @@ int validate_param_for_command(
             return validate_kv_set_rgb(key, value);
         case COMMAND_ACK:
         case COMMAND_NACK:
-            return validate_kv_ack(key, value);
+            return -1;
         case NUM_COMMANDS:
         case COMMAND_INVALID:
             return -1;
