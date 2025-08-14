@@ -15,5 +15,5 @@ nrfutil sdk-manager toolchain launch --ncs-version=v3.0.2 -- bash -c "
     source \"$NCS_INSTALL_DIR/v3.0.2/zephyr/zephyr-env.sh\" &&
     export PS1=\"(bbb-led-dongle):\w\$ \" &&
     echo \"Environment initialized. Type exit or Ctrl-D to quit.\" &&
-    exec bash --norc --noprofile -i
+    exec bash --rcfile $APPLICATION_DIR/scripts/.aliases.sh --noprofile -i
 "

@@ -1,0 +1,2 @@
+alias ts="pushd . && cd test/serialise && west build -b native_sim && ./build/serialise/zephyr/zephyr.exe && popd"
+alias tp="pushd . && cd test/protocol && west build -b native_sim && ./build/protocol/zephyr/zephyr.exe && popd"
