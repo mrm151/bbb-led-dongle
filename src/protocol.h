@@ -1,9 +1,12 @@
-#ifndef BBBLED_PROTOCOL_H
-#define BBBLED_PROTOCOL_H
+#ifndef _BBBLED_PROTOCOL_H
+#define _BBBLED_PROTOCOL_H
 
 #include <zephyr/types.h>
 #include <zephyr/kernel.h>
 #include <zephyr/sys/ring_buffer.h>
+
+#include "commands.h"
+#include "serialise.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -33,20 +36,10 @@ extern "C" {
 #define LEN(end, start) ((end) - (start))
 
 static const char* protocol_msg_identifier = "msg";
-
-static const uint8_t protocol_preamble = '!';
-static const uint8_t protocol_key_value_sep = ':';
-static const uint8_t protocol_item_sep = ',';
-static const uint8_t protocol_crc = '#';
-
-
-typedef enum {
-    SET_RGB = 0,
-    ACK,
-    NACK,
-    NUM_COMMANDS,
-    INVALID,
-} command_t;
+static const char *protocol_preamble = "!";
+static const char *protocol_key_value_sep = ":";
+static const char *protocol_item_sep = ",";
+static const char *protocol_crc = "#";
 
 typedef enum {
     PARSER_OK = 0,
@@ -69,38 +62,11 @@ typedef enum {
 
 typedef uint16_t crc_t;
 
-
-static const char *valid_commands_str[] = {
-    "set_rgb",
-    "ack",
-    "nack",
-};
-
-static const char *valid_params_set_rgb[] = {
-    "red",
-    "green",
-    "blue"
-};
-
-static const char *valid_params_ack[] = {
-    NULL
-};
-
-static const char *valid_params_nack[] = {
-    NULL
-};
-
 enum pkt_type {
     PKT_TYPE_DATA = 1,
     PKT_TYPE_ACK,
     PKT_TYPE_NACK,
 };
-
-struct key_val_pair{
-    char key[PROTOCOL_MAX_KEY_LEN];
-    char value[PROTOCOL_MAX_VALUE_LEN];
-};
-
 
 typedef struct {
     command_t command;
@@ -110,23 +76,23 @@ typedef struct {
 
 /**
  * @brief Packet structure for the protocol. Each packet should include:
- * @param   command     :   the command being sent (e.g brightness/rainbow/sleep)
- * @param   params      :   the kev:value params that correspond to the command
+ * @param   command     :   the command being sent
+ * @param   params      :   the key:value params that correspond to the command
  * @param   num_params  :   how many params we are sending
+ * @param   msg_num     :   msg number for the pkt
  * @param   crc         :   the crc for the data
+ * @param   resend      :   if the pkt is marked for resend
  */
-struct protocol_data_pkt {
-    char command[PROTOCOL_MAX_CMD_LEN];
+struct protocol_pkt {
+    command_t command;
     struct key_val_pair params[PROTOCOL_MAX_PARAMS];
     size_t num_params;
     uint16_t msg_num;
-    uint8_t *data;
-    size_t data_len;
     crc_t crc; // CRC checksum for the message
     bool resend;
 };
 
-typedef struct ring_buf* ring_buf_t;
+typedef struct protocol_pkt* pkt_t;
 
 typedef struct k_timer* timer_t;
 typedef void (*timer_cb_t)(timer_t);
@@ -134,7 +100,7 @@ typedef void (*timer_cb_t)(timer_t);
 typedef struct {
     uint8_t *rx_buf;
     size_t rx_len;
-    struct protocol_data_pkt *to_send;
+    struct protocol_pkt *to_send;
     timer_cb_t timer_expired;
     uint8_t retry_attempts;
 } protocol_ctx_obj_t;
@@ -142,13 +108,20 @@ typedef struct {
 typedef protocol_ctx_obj_t* protocol_ctx_t;
 
 
-struct protocol_data_pkt* protocol_packet_create(
-    command_t command,
-    struct key_val_pair *params,
-    size_t num_params,
-    uint16_t msg_num);
+/**
+ * @brief   Creates a new protocol packet and assigns it a
+ *          msg number.
+ *
+ * @param   command     :   command to send
+ * @param   params      :   parameters to send with the command
+ * @param   num_params  :   number of parameters included
+ * @param   msg_num     :   assign this msg number to the pkt
+ * @retval  pkt_t ptr on success
+ * @retval  NULL ptr on failure
+ */
+pkt_t protocol_packet_create(command_t command, struct key_val_pair *params, size_t num_params, uint16_t msg_num);
 
-serialise_ret_t serialise_packet(struct protocol_data_pkt *pkt);
+size_t serialise_packet(struct protocol_pkt *pkt, uint8_t *dest, size_t dest_size);
 
 int protocol_ctx_init_pkt(protocol_ctx_t ctx, char* command, struct key_val_pair *params, size_t num_params);
 
@@ -167,10 +140,10 @@ void handle_incoming(
     protocol_ctx_t ctx,
     parsed_data_t *data);
 
-const size_t calc_rq_buf_size(struct protocol_data_pkt *pkt);
+const size_t calc_rq_buf_size(struct protocol_pkt *pkt);
 
 #ifdef __cplusplus
 }
 #endif
 
-#endif /* BBBLED_PROTOCOL_H */
+#endif /* _BBBLED_PROTOCOL_H */

@@ -28,6 +28,12 @@ typedef enum {
 
 typedef uint16_t value_t;
 
+/* kv pair definition */
+struct key_val_pair{
+    key_t key;
+    value_t value;
+};
+
 key_t key_to_enum(char *str);
 command_t cmd_to_enum(char *str);
 char* key_to_string(key_t key);

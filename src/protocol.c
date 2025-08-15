@@ -1,4 +1,3 @@
-#include <zephyr/types.h>
 #include <errno.h>
 #include <zephyr/random/random.h>
 #include <string.h>
@@ -9,12 +8,12 @@
 
 #include "protocol.h"
 
-#define PKT_SLAB_BLOCK_SIZE sizeof(struct protocol_data_pkt)
+#define PKT_SLAB_BLOCK_SIZE sizeof(struct protocol_pkt)
 #define PKT_SLAB_BLOCK_COUNT 12
 #define SLAB_ALIGNMENT 4
 #define PKT_TIMEOUT_MSEC 100
 #define PKT_RINGBUF_LEN 8
-#define RING_BUF_ITEM_SIZE RING_BUF_ITEM_SIZEOF(struct protocol_data_pkt*)
+#define RING_BUF_ITEM_SIZE RING_BUF_ITEM_SIZEOF(struct protocol_pkt*)
 
 K_MEM_SLAB_DEFINE(protocol_pkt_slab, PKT_SLAB_BLOCK_SIZE, PKT_SLAB_BLOCK_COUNT, SLAB_ALIGNMENT);
 
@@ -22,35 +21,16 @@ K_MEM_SLAB_DEFINE(protocol_pkt_slab, PKT_SLAB_BLOCK_SIZE, PKT_SLAB_BLOCK_COUNT, 
 LOG_MODULE_REGISTER(bbbled_protocol, LOG_LEVEL_DBG);
 
 
-command_t to_enum(char *str)
-{
-    command_t command = INVALID;
-    for (int i = 0; i < NUM_COMMANDS; ++i)
-    {
-        if (strcmp(valid_commands_str[i], str) == 0)
-        {
-            command = i;
-            return command;
-        }
-    }
-    return command;
-}
-
-char* to_string (command_t command)
-{
-    switch (command)
-    {
-        case SET_RGB:
-            return "set_rgb";
-        case ACK:
-            return "ack";
-        case NACK:
-            return "nack";
-        default:
-            return NULL;
-    }
-}
-
+/**
+ * @brief Create a new protocol context
+ *
+ * @param   ctx         :   The empty context object
+ * @param   buffer      :   Buffer pointer. Used for storing data received
+ *                          over the interface
+ * @param   buffer_size :   Size of the buffer
+ *
+ * @returns An initialised protocol context
+ */
 protocol_ctx_t protocol_init(
     protocol_ctx_obj_t *ctx,
     uint8_t *buffer,
@@ -69,28 +49,29 @@ protocol_ctx_t protocol_init(
 }
 
 /**
- * @brief Construct an ACK for the given message number
+ * @brief   Construct an ACK for the given message number
  *
  * @param   msg_num :   Message number to ack
  *
  * @return  An ack packet.
  */
-static const struct protocol_data_pkt* create_ack(const uint16_t msg_num)
+static const struct protocol_pkt* create_ack(const uint16_t msg_num)
 {
-    return protocol_packet_create(ACK, NULL, 0, msg_num);
+    return protocol_packet_create(COMMAND_ACK, NULL, 0, msg_num);
 }
 
 /**
- * @brief Construct a NACK. The message number does not matter.
+ * @brief   Construct a NACK. The message number does not matter.
  *
  * @return  A nack packet.
  */
-static const struct protocol_data_pkt* create_nack()
+static const struct protocol_pkt* create_nack()
 {
-    return protocol_packet_create(NACK, NULL, 0, -1);
+    return protocol_packet_create(COMMAND_NACK, NULL, 0, -1);
 }
 
 /**
+ * @brief   Create a random 16-bit number
  * @return  A random 16-bit number
  */
 static uint16_t create_msg_num(void)
@@ -98,167 +79,99 @@ static uint16_t create_msg_num(void)
     return sys_rand16_get();
 }
 
-/**
- * @brief Calculate the required size a buffer should be for serialisation
- * of a protocol packet.
- *
- * @param   command_len :   length of the command for the serialised packet
- * @param   params      :   the key:value params for the packet
- * @param   num_params  :   the number of params that the packet contains
- */
-const size_t calc_rq_buf_size(
-    struct protocol_data_pkt *pkt)
-{
-    size_t command_len = strlen(pkt->command);
+// /**
+//  * @brief   Calculate the required size a buffer should be for serialisation
+//  *          of a protocol packet.
+//  *
+//  * @param   pkt :   The packet being serialised
+//  * @returns The size required for a buffer
+//  */
+// const size_t calc_rq_buf_size(
+//     struct protocol_pkt *pkt)
+// {
+//     size_t command_len = strlen(pkt->command);
 
-    /*  '!' + "<command>" + ',' */
-    size_t size =
-        sizeof(protocol_preamble) +
-        (sizeof(char) * command_len) +
-        sizeof(uint8_t);
+//     /*  '!' + "<command>" + ',' */
+//     size_t size =
+//         sizeof(protocol_preamble) +
+//         (sizeof(char) * command_len) +
+//         sizeof(uint8_t);
 
 
-    /*  "<key0>:<value0>,<key1>:<value1>,..." */
-    for (int i = 0; i < pkt->num_params; ++i)
-    {
-        size += (sizeof(char) * strlen(pkt->params[i].key));
-        size += sizeof(uint8_t); // ':'
-        size += (sizeof(char) * strlen(pkt->params[i].value));
-        size += sizeof(uint8_t); // ','
-    }
-    size += (sizeof(char) * strlen(protocol_msg_identifier));
-    size += sizeof(uint8_t); // ':'
-    size += (sizeof(char) * PROTOCOL_MAX_MSG_NUM_CHARS); // worst case msg number length (16-bit decimal as char)
-    size += (sizeof(char) * 5); // #<CRC:04x>
-    size += sizeof(uint8_t); // '\0';
+//     /*  "<key0>:<value0>,<key1>:<value1>,..." */
+//     for (int i = 0; i < pkt->num_params; ++i)
+//     {
+//         size += (sizeof(char) * strlen(key_to_string(pkt->params[i].key)));
+//         size += sizeof(uint8_t); // ':'
+//         size += (sizeof(char) * strlen(valuepkt->params[i].value));
+//         size += sizeof(uint8_t); // ','
+//     }
+//     size += (sizeof(char) * strlen(protocol_msg_identifier));
+//     size += sizeof(uint8_t); // ':'
+//     size += (sizeof(char) * PROTOCOL_MAX_MSG_NUM_CHARS); // worst case msg number length (16-bit decimal as char)
+//     size += (sizeof(char) * 5); // #<CRC:04x>
+//     size += sizeof(uint8_t); // '\0';
 
-    LOG_DBG("calculated size: %ld", size);
-    return size;
-}
+//     LOG_DBG("calculated size: %ld", size);
+//     return size;
+// }
 
 /**
  * @brief Convert a packet to a string
  *
- * @param   dest    :   destination buffer
  * @param   pkt     :   packet to convert
  *
- * @return  String representation of the packet
+ * @returns SERIALISE_INVALID_PKT   :   Invalid packet given
+ *          SERIALISE_NO_MEM        :   Packet buffer is not big enough
+ *          SERIALISE_EXCEED_PAIR_LEN   Exceeded the size of a key:value pair
+ *          SERIALISE_OK            :   Successfully serialised the packet
+ *
  */
-serialise_ret_t serialise_packet(
-    struct protocol_data_pkt *pkt)
+size_t serialise_packet(
+    pkt_t pkt,
+    uint8_t *dest,
+    size_t dest_size)
 {
-    uint16_t offset = 0;
-    /*  4 characters for CRC plus 1 for null termination */
-    char char_crc[5];
-    uint16_t crc;
-    size_t key_len;
-    size_t value_len;
-    size_t total;
+    struct serial_ctx ctx;
 
-    // null ptr check
-    if (pkt == NULL)
-    {
-        return SERIALISE_INVALID_PKT;
-    }
+    serialise_ctx_init(&ctx, dest, dest_size, NULL);
 
-    // Determine if buffer supplied is large enough
-    size_t command_len = strlen(pkt->command);
+    struct kv_pair_adapter adapter = {
+        .pairs = pkt->params,
+        .num_pairs = pkt->num_params,
+        .pair_separator = protocol_key_value_sep[0],
+        .pair_terminator = protocol_item_sep[0]
+    };
 
-    if (pkt->data_len < calc_rq_buf_size(pkt))
-    {
-        LOG_ERR("supplied buffer not large enough: got %ld expected %ld", pkt->data_len, calc_rq_buf_size(pkt));
-        return SERIALISE_NO_MEM;
-    }
+    struct serial_registry reg[] = {
+        {.handler = serialise_padding_char,     .user_data = protocol_preamble},
+        {.handler = serialise_str,              .user_data = cmd_to_string(pkt->command)},
+        {.handler = serialise_padding_char,     .user_data = protocol_item_sep},
+        {.handler = serialise_key_value_pairs,  .user_data = &adapter},
+        {.handler = serialise_str,              .user_data = key_to_string(KEY_MSGNUM)},
+        {.handler = serialise_padding_char,     .user_data = protocol_key_value_sep},
+        {.handler = serialise_uint16t_dec,      .user_data = &pkt->msg_num},
+        {.handler = serialise_padding_char,     .user_data = protocol_crc},
+    };
 
-    LOG_DBG("pkt buf size %ld", sizeof(pkt->data));
+    serialise_handler_register(&ctx, reg, ARRAY_SIZE(reg));
 
-    // Copy preamble into buf
-    *pkt->data = protocol_preamble;
-    offset++;
-    LOG_DBG("copied preamble");
+    serialise(&ctx);
 
-    // Copy command "<command>," into buf
-    memcpy((pkt->data + offset), pkt->command, command_len);
-    offset += (command_len);
-    *(pkt->data + offset) = protocol_item_sep;
-    offset++;
-    LOG_DBG("copied command");
+    /* CRC afterwards */
+    uint8_t crc = crc16_ccitt(PROTOCOL_CRC_POLY, ctx.buffer, ctx.bytes_written);
+    serialise_uint16t_hex(&ctx, &crc);
 
-    // Copy params e.g "<key>:<value>," into buf
-    char pair[PROTOCOL_MAX_KEY_LEN + PROTOCOL_MAX_VALUE_LEN + 2] = {0};
-    for (uint8_t index = 0; index < pkt->num_params; ++index)
-    {
-        key_len = strlen(pkt->params[index].key);
-        value_len = strlen(pkt->params[index].value);
-        total = key_len + value_len + 2; // including ':' and ','
+    LOG_INF("Serialised packet, data=%s", dest);
 
-        int written_to_pair = snprintf(pair,
-                            sizeof(pair),
-                            "%s:%s,",
-                            pkt->params[index].key,
-                            pkt->params[index].value);
-
-        if (written_to_pair >= sizeof(pair))
-        {
-            // key or value of param was too large
-            LOG_ERR("exceeded bounds of pair - maxlen=%ld, wrote %ld bytes", sizeof(pair), written_to_pair);
-            return SERIALISE_EXCEED_PAIR_LEN;
-        }
-
-        memcpy((pkt->data + offset), pair, total);
-        offset += total;
-    }
-    LOG_DBG("copied params");
-
-    // Copy msg number "msg:<msg_num>," into buf
-    char msg_num_identifier[16];
-    int written_to_msg = snprintf(msg_num_identifier,
-                                sizeof(msg_num_identifier),
-                                "%s:%d",
-                                protocol_msg_identifier,
-                                pkt->msg_num);
-
-    if(written_to_msg >= sizeof(msg_num_identifier))
-    {
-        // pkt->msg_num was too large
-        LOG_ERR("exceeded bounds of msg_num maxlen=16, wrote %d bytes", written_to_msg);
-        return SERIALISE_EXCEED_MSG_LEN;
-    } ;
-
-    memcpy((pkt->data + offset), msg_num_identifier, strlen(msg_num_identifier));
-    offset += strlen(msg_num_identifier);
-    LOG_DBG("copied msg num");
-
-    // CRC identifier
-    *(pkt->data + offset) = protocol_crc;
-    offset++;
-    LOG_DBG("copied crc id");
-
-    // CRC
-    crc = crc16_ccitt(PROTOCOL_CRC_POLY, pkt->data, offset);
-
-    snprintf(char_crc, sizeof(char_crc), "%04x", crc);
-    memcpy((pkt->data + offset), char_crc, strlen(char_crc));
-
-    pkt->crc = crc;
-
-    offset += strlen(char_crc);
-    LOG_DBG("copied crc");
-
-    // null-terminate
-    *(pkt->data + offset) = '\0';
-    offset++;
-
-
-    LOG_INF("Serialised packet, data=%s", pkt->data);
-
-    return SERIALISE_OK;
+    return ctx.bytes_written;
 }
 
 /**
  * @brief Verify the CRC of a packet
  *
- * @param   packet  :   packet to verify
+ * @param   bytes   :   bytes to verify
+ * @param   len     :   length of the bytes
  *
  * @return  0 if the CRC is valid, -1 if it is not
  */
@@ -270,6 +183,8 @@ static int verify_crc(const uint8_t* bytes, size_t len)
     uint8_t index = 0;
 
     crc_start = bytes;
+
+    /* Find where the CRC starts */
     while (*crc_start++ != '#')
     {
         if (index++ == len) break;
@@ -281,6 +196,7 @@ static int verify_crc(const uint8_t* bytes, size_t len)
         return 1;
     }
 
+    /* convert to int */
     crc = (crc_t) strtol(crc_start, NULL, 16);
     data_len = (crc_start - bytes);
 
@@ -293,39 +209,9 @@ static int verify_crc(const uint8_t* bytes, size_t len)
     return -1;
 }
 
-int validate_params_for_command(
-    command_t command,
-    struct key_val_pair *pair)
-{
-    char *end;
-
-    LOG_DBG("Validating params [%s: %s] for command '%d'", pair->key, pair->value, command);
-    switch (command)
-    {
-        case SET_RGB:
-            for (uint8_t index = 0; index < STATIC_STR_ARRAY_LEN(valid_params_set_rgb); ++index)
-            {
-                if (strcmp(valid_params_set_rgb[index], pair->key) == 0)
-                {
-
-                    if (strtol(pair->value, &end, 10) < 256)
-                    {
-                        LOG_DBG("pair->value good: %s", pair->value);
-                        return 0;
-                    }
-                }
-            }
-            break;
-        case ACK:
-            return 0;
-        default:
-            LOG_WRN("unrecognised command : %d", command);
-            break;
-    }
-
-    return -1;
-}
-
+/**
+ * @brief
+ */
 uint8_t tokeniser(
     char *str,
     size_t len,
@@ -380,10 +266,8 @@ parser_ret_t parse(
     parsed_data_t *data,
     uint16_t *msg_num)
 {
-    command_t command = INVALID;
+    command_t command = COMMAND_INVALID;
     char token_array[PROTOCOL_MAX_NUM_TOKENS][PROTOCOL_MAX_TOKEN_LEN] = {0};
-    char key[PROTOCOL_MAX_KEY_LEN];
-    char value[PROTOCOL_MAX_VALUE_LEN];
     struct key_val_pair pairs[PROTOCOL_MAX_PARAMS];
     uint8_t pair_index = 0;
     uint8_t num_tokens = 0;
@@ -417,7 +301,7 @@ parser_ret_t parse(
     command = to_enum(token_array[0]);
 
     /*  Check the command is valid */
-    if (command == INVALID)
+    if (command == COMMAND_INVALID)
     {
         LOG_ERR("command invalid");
         return PARSER_INVALID_CMD;
@@ -438,10 +322,16 @@ parser_ret_t parse(
             char *ptr;
             struct key_val_pair pair;
             size_t key_len = LEN(key_end, token_array[index]);
+            char key_str[PROTOCOL_MAX_KEY_LEN];
+            char value_str[PROTOCOL_MAX_KEY_LEN];
+            key_t key_enum;
+            value_t value_enum;
+
 
             /*  Copy and null-terminate the value */
-            memcpy(pair.key, token_array[index], (key_len));
-            pair.key[key_len] = '\0';
+            memcpy(key_str, token_array[index], (key_len));
+            key_str[key_len] = '\0';
+            pair.key = key_to_enum(key_str);
 
 
             /*  Copy the key */
@@ -451,15 +341,16 @@ parser_ret_t parse(
                 (should be done in the tokeniser)*/
             while (*key_end++ != '\0');
             val_end = key_end;
-            memcpy(pair.value, val_start, LEN(val_end, val_start));
+            memcpy(value_str, val_start, LEN(val_end, val_start));
+            pair.value = str_to_value(value_str);
 
             /*  Validate the params and get the msg number
                 if one has been supplied */
-            if (strcmp(pair.key, protocol_msg_identifier) == 0)
+            if (strcmp(value_str, protocol_msg_identifier) == 0)
             {
-                *msg_num = (uint16_t) strtol(pair.value, &ptr, 10);
+                *msg_num = pair.value;
             }
-            else if (validate_params_for_command(command, &pair) == 0)
+            else if (validate_param_for_command(command, pair.key, pair.value) == 0)
             {
                 data->params[pair_index] = pair;
                 ++pair_index;
@@ -497,7 +388,7 @@ void remove_packet(protocol_ctx_t ctx, uint16_t msg_num)
     }
 }
 
-void queue_packet(protocol_ctx_t ctx, struct protocol_pkt_t *pkt)
+void queue_packet(protocol_ctx_t ctx, pkt_t pkt)
 {
     if (ctx->to_send == NULL)
     {
@@ -513,7 +404,7 @@ void queue_packet(protocol_ctx_t ctx, struct protocol_pkt_t *pkt)
 void handle_incoming(protocol_ctx_t ctx, parsed_data_t *data)
 {
     char id;
-    struct protocol_data_pkt *pkt;
+    struct protocol_pkt *pkt;
     uint16_t msg_num = -1;
     parser_ret_t ret;
 
@@ -526,17 +417,21 @@ void handle_incoming(protocol_ctx_t ctx, parsed_data_t *data)
         case PARSER_OK:
             switch (data->command)
             {
-                case ACK:
+                case COMMAND_ACK:
                     remove_packet(ctx, msg_num);
                     break;
-                case NACK:
+                case COMMAND_NACK:
                     // Reset the timeout on the current packet but mark it for resend
 
                     break;
 
-                case SET_RGB:
+                case COMMAND_SET_RGB:
                     queue_packet(ctx, create_ack(msg_num));
                     break;
+                case COMMAND_INVALID:
+                    queue_packet(ctx, create_nack());
+                case NUM_COMMANDS:
+                    __ASSERT(0, "this should not be reached");
             }
 
             break;
@@ -555,49 +450,21 @@ void handle_incoming(protocol_ctx_t ctx, parsed_data_t *data)
     }
 }
 
-
-/**
- * @brief Verify the command and params of a packet.
- * This includes checking that the lengths of theses
- * properties are correst and that the command and parameters
- * are valid.
- *
- * @param   command :   the command for verification
- * @param   params  :   an array of key, value params
- *
- * @return  0 if the data is valid, -1 if it is not
- */
-static int verify(
-    const char* command,
-    const struct key_val_pair *params)
-{
-    return EPERM;
-}
-
-/**
- * @brief Creates a new protocol packet. Assigns the packet a
- * msg number, serialises its data and sets its CRC.
- *
- * @param   command     :   command to send
- * @param   params      :   parameters to send with the command
- * @param   num_params  :   number of parameters to send
- * @param   dest        :   the packet to populate
- * @param   buf         :   buffer to copy serialised packet into
- * @param   buf_size    :   size of the buffer
- *
- * @return  0 (success) or -1 (fail)
- */
-struct protocol_data_pkt* protocol_packet_create(
+pkt_t protocol_packet_create(
     command_t command,
     struct key_val_pair params[],
     size_t num_params,
     uint16_t msg_num)
 {
-    struct protocol_data_pkt *pkt;
-    crc_t crc;
-    size_t written = 0;
-    struct key_val_pair param;
+    pkt_t pkt;
 
+    /*  First validate params */
+    for (uint8_t index = 0; index < num_params; ++index)
+    {
+        if (validate_param_for_command(command, params[index].key, params[index].value)) return NULL;
+    }
+
+    /*  Then allocate memory */
     int rc = k_mem_slab_alloc(&protocol_pkt_slab, (void **)&pkt, K_FOREVER);
     if (rc)
     {
@@ -605,25 +472,14 @@ struct protocol_data_pkt* protocol_packet_create(
         return NULL;
     }
 
-    memset(pkt, 0, sizeof(struct protocol_data_pkt));
+    memset(pkt, 0, sizeof(struct protocol_pkt));
 
+    /*  Now we can populate the packet */
     for (uint8_t index = 0; index < num_params; ++index)
     {
-        param = params[index];
-
-        if (strlen(param.key) > PROTOCOL_MAX_KEY_LEN ||
-            strlen(param.value) > PROTOCOL_MAX_VALUE_LEN)
-        {
-            LOG_WRN("omitting '%s:%s' too long", param.key, param.value);
-        }
-        else
-        {
-            pkt->params[index] = param;
-        }
+        pkt->params[index] = params[index];
     }
-
-    memcpy(pkt->command, to_string(command), PROTOCOL_MAX_CMD_LEN);
-
+    pkt->command = command;
     pkt->num_params = num_params;
 
     /*  If no message number has been given, generate one */

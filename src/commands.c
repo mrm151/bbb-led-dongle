@@ -115,6 +115,11 @@ value_t str_to_value(char *str)
     return (value_t) strtol(str, &ptr, 10);
 }
 
+void value_to_str(value_t value, char *dest, size_t size)
+{
+    snprintf(dest, size, "%d", value);
+}
+
 static int validate_kv_set_rgb(key_t key, value_t value)
 {
     set_rgb_keys_t param = (set_rgb_keys_t) key;
@@ -139,8 +144,8 @@ static int validate_kv_set_rgb(key_t key, value_t value)
  * @param   key     :   key to evaluate
  * @param   value   :   value to evaluate
  *
- * @return  0 if params are valid
- *          -1 if not
+ * @retval  0 if params are valid
+ * @retval  1 if not
  */
 int validate_param_for_command(
     command_t command,
@@ -153,10 +158,10 @@ int validate_param_for_command(
             return validate_kv_set_rgb(key, value);
         case COMMAND_ACK:
         case COMMAND_NACK:
-            return -1;
+            return 1;
         case NUM_COMMANDS:
         case COMMAND_INVALID:
-            return -1;
+            return 1;
         default:
             __ASSERT(0, "unreachable");
     }

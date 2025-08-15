@@ -21,12 +21,6 @@ struct serial_registry {
     void *user_data;
 };
 
-/* kv pair definition */
-struct key_val_pair{
-    key_t key;
-    value_t value;
-};
-
 /* Adapt the args for serialising kv pairs*/
 struct kv_pair_adapter {
     struct key_val_pair *pairs;
