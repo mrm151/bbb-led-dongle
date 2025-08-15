@@ -20,6 +20,11 @@ K_MEM_SLAB_DEFINE(protocol_pkt_slab, PKT_SLAB_BLOCK_SIZE, PKT_SLAB_BLOCK_COUNT, 
 
 LOG_MODULE_REGISTER(bbbled_protocol, LOG_LEVEL_DBG);
 
+static const char* protocol_msg_identifier = "msg";
+static const char *protocol_preamble = "!";
+static const char *protocol_key_value_sep = ":";
+static const char *protocol_item_sep = ",";
+static const char *protocol_crc = "#";
 
 /**
  * @brief Create a new protocol context
@@ -139,8 +144,8 @@ size_t serialise_packet(
     struct kv_pair_adapter adapter = {
         .pairs = pkt->params,
         .num_pairs = pkt->num_params,
-        .pair_separator = protocol_key_value_sep[0],
-        .pair_terminator = protocol_item_sep[0]
+        .pair_separator = protocol_key_value_sep,
+        .pair_terminator = protocol_item_sep
     };
 
     struct serial_registry reg[] = {

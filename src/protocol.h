@@ -35,12 +35,6 @@ extern "C" {
 // Find the length between two pointers
 #define LEN(end, start) ((end) - (start))
 
-static const char* protocol_msg_identifier = "msg";
-static const char *protocol_preamble = "!";
-static const char *protocol_key_value_sep = ":";
-static const char *protocol_item_sep = ",";
-static const char *protocol_crc = "#";
-
 typedef enum {
     PARSER_OK = 0,
     PARSER_INVALID_BYTES,
