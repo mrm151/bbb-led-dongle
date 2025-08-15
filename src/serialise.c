@@ -85,9 +85,9 @@ void serialise_key_value_pairs(serial_ctx_t ctx, void *data)
     for (uint8_t index = 0; index < adapter->num_pairs; ++index)
     {
         serialise_str(ctx, key_to_string(adapter->pairs[index].key));
-        serialise_padding_char(ctx, &adapter->pair_separator);
+        serialise_padding_char(ctx, adapter->pair_separator);
         serialise_uint16t_dec(ctx, &adapter->pairs[index].value);
-        serialise_padding_char(ctx, &adapter->pair_terminator);
+        serialise_padding_char(ctx, adapter->pair_terminator);
     }
 }
 

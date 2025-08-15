@@ -25,8 +25,8 @@ struct serial_registry {
 struct kv_pair_adapter {
     struct key_val_pair *pairs;
     uint8_t num_pairs;
-    uint8_t pair_separator;
-    uint8_t pair_terminator;
+    char *pair_separator;
+    char *pair_terminator;
 };
 typedef struct kv_pair_adapter* kv_pair_adapter_t;
 
