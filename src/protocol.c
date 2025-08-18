@@ -6,6 +6,7 @@
 #include <zephyr/logging/log.h>
 #include <stdlib.h>
 
+#include "timer.h"
 #include "protocol.h"
 
 #define PKT_SLAB_BLOCK_SIZE         sizeof(struct protocol_pkt)
@@ -25,20 +26,7 @@ K_MEM_SLAB_DEFINE(protocol_pkt_slab, PKT_SLAB_BLOCK_SIZE, PKT_SLAB_BLOCK_COUNT, 
 
 LOG_MODULE_REGISTER(bbbled_protocol, LOG_LEVEL_DBG);
 
-/**
- * @brief Create a new protocol context
- *
- * @param   ctx         :   The empty context object
- * @param   buffer      :   Buffer pointer. Used for storing data received
- *                          over the interface
- * @param   buffer_size :   Size of the buffer
- *
- * @returns An initialised protocol context
- */
-protocol_ctx_t protocol_init(
-    protocol_ctx_t ctx,
-    uint8_t *buffer,
-    size_t buffer_size)
+void protocol_init(protocol_ctx_t ctx, uint8_t *buffer, size_t buffer_size)
 {
     protocol_ctx_t this;
 
@@ -59,7 +47,7 @@ protocol_ctx_t protocol_init(
  *
  * @return  An ack packet.
  */
-static const pkt_t create_ack(const uint16_t msg_num)
+static inline const pkt_t create_ack(const uint16_t msg_num)
 {
     return protocol_packet_create(COMMAND_ACK, NULL, 0, msg_num);
 }
@@ -69,7 +57,7 @@ static const pkt_t create_ack(const uint16_t msg_num)
  *
  * @return  A nack packet.
  */
-static const pkt_t create_nack()
+static inline const pkt_t create_nack()
 {
     return protocol_packet_create(COMMAND_NACK, NULL, 0, -1);
 }
@@ -78,7 +66,7 @@ static const pkt_t create_nack()
  * @brief   Create a random 16-bit number
  * @return  A random 16-bit number
  */
-static uint16_t create_msg_num(void)
+static inline uint16_t create_msg_num(void)
 {
     return sys_rand16_get();
 }
@@ -120,17 +108,6 @@ static uint16_t create_msg_num(void)
 //     return size;
 // }
 
-/**
- * @brief Convert a packet to a string
- *
- * @param   pkt     :   packet to convert
- *
- * @returns SERIALISE_INVALID_PKT   :   Invalid packet given
- *          SERIALISE_NO_MEM        :   Packet buffer is not big enough
- *          SERIALISE_EXCEED_PAIR_LEN   Exceeded the size of a key:value pair
- *          SERIALISE_OK            :   Successfully serialised the packet
- *
- */
 size_t serialise_packet(
     pkt_t pkt,
     uint8_t *dest,
@@ -214,12 +191,15 @@ static int verify_crc(const uint8_t* bytes, size_t len)
 }
 
 /**
- * @brief
+ * @brief   Given a string, populate an array with comma-separated tokens
+ *
+ * @param   str         string to examine
+ * @param   len         size of the string
+ * @param   token_array array to populate
+ *
+ * @retval  The number of tokens in the array
  */
-uint8_t tokeniser(
-    char *str,
-    size_t len,
-    char token_array[][PROTOCOL_MAX_TOKEN_LEN])
+static uint8_t tokeniser(char *str, size_t len, char token_array[][PROTOCOL_MAX_TOKEN_LEN])
 {
     uint8_t index;
     char *search_char = PROTOCOL_ITEM_SEP;
@@ -264,7 +244,18 @@ uint8_t tokeniser(
     return index;
 }
 
-int parse(
+/**
+ * @brief   parse a string, returning its command and params if valid
+ *
+ * @param   str     string to parse
+ * @param   len     lenth of the string
+ * @param   data    data to populate
+ * @param   msg_num msg number for the parsed data
+ *
+ * @retval  -1 if failure
+ * @retval  0 if successful
+ */
+static int parse(
     char *str,
     size_t len,
     parsed_data_t data,
@@ -381,7 +372,7 @@ int parse(
     return PARSER_OK;
 }
 
-void remove_packet(protocol_ctx_t ctx, const uint16_t msg_num)
+static void remove_packet(protocol_ctx_t ctx, const uint16_t msg_num)
 {
     if (ctx->to_send && ctx->to_send->msg_num == msg_num)
     {
@@ -390,7 +381,7 @@ void remove_packet(protocol_ctx_t ctx, const uint16_t msg_num)
     }
 }
 
-void queue_packet(protocol_ctx_t ctx, const pkt_t pkt)
+static inline void queue_packet(protocol_ctx_t ctx, const pkt_t pkt)
 {
     if (ctx->to_send == NULL)
     {
@@ -398,12 +389,12 @@ void queue_packet(protocol_ctx_t ctx, const pkt_t pkt)
     }
 }
 
-void mark_packet_for_resend(protocol_ctx_t ctx)
+static inline void mark_packet_for_resend(protocol_ctx_t ctx)
 {
     ctx->to_send->resend = true;
 }
 
-pkt_t send_pkt(protocol_ctx_t ctx)
+inline pkt_t send_pkt(protocol_ctx_t ctx)
 {
     return ctx->to_send;
 }
@@ -420,6 +411,7 @@ void handle_incoming(
     if (ret)
     {
         LOG_ERR("Parsing failed");
+        queue_packet(ctx, create_nack());
         return;
     }
 

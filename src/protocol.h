@@ -108,29 +108,43 @@ typedef struct protocol_ctx* protocol_ctx_t;
  * @brief   Creates a new protocol packet and assigns it a
  *          msg number.
  *
- * @param   command     :   command to send
- * @param   params      :   parameters to send with the command
- * @param   num_params  :   number of parameters included
- * @param   msg_num     :   assign this msg number to the pkt
- * @retval  pkt_t ptr on success
+ * @param   command        command to send
+ * @param   params         parameters to send with the command
+ * @param   num_params     number of parameters included
+ * @param   msg_num        assign this msg number to the pkt
+ * @retval  Ptr to pkt on success
  * @retval  NULL ptr on failure
  */
 pkt_t protocol_packet_create(command_t command, struct key_val_pair *params, size_t num_params, uint16_t msg_num);
 
+/**
+ * @brief Convert a packet to a string
+ *
+ * @param   pkt         packet to convert
+ * @param   dest        buffer to copy into
+ * @param   dest_size   size of buffer
+ *
+ * @returns Amount of bytes written to the buffer
+ *
+ */
 size_t serialise_packet(struct protocol_pkt *pkt, uint8_t *dest, size_t dest_size);
 
-int protocol_ctx_init_pkt(protocol_ctx_t ctx, char* command, struct key_val_pair *params, size_t num_params);
-
-protocol_ctx_t protocol_init(
+/**
+ * @brief Create a new protocol context
+ *
+ * @param   ctx         :   The empty context object
+ * @param   buffer      :   Buffer pointer. Used for storing data received
+ *                          over the interface
+ * @param   buffer_size :   Size of the buffer
+ *
+ * @returns An initialised protocol context
+ */
+void protocol_init(
     protocol_ctx_t ctx,
     uint8_t *buffer,
     size_t buffer_size);
 
-int parse(
-    char *str,
-    size_t len,
-    parsed_data_t data,
-    uint16_t *msg_num);
+
 
 void handle_incoming(
     protocol_ctx_t ctx,
