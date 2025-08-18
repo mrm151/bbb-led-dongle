@@ -3,6 +3,10 @@
 #include <stdio.h>
 #include <zephyr/types.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 typedef enum {
     COMMAND_SET_RGB = 0,
     COMMAND_ACK,
@@ -40,5 +44,9 @@ char* key_to_string(key_t key);
 char* cmd_to_string(command_t command);
 value_t str_to_value(char *str);
 int validate_param_for_command(command_t command, key_t key, value_t value);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif /* _BBBLED_COMMANDS_H */

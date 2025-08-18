@@ -1,5 +1,12 @@
+#ifndef _BBBLED_SERIALISE_H
+#define _BBBLED_SERIALISE_H
+
 #include <zephyr/types.h>
 #include "commands.h"
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 #define SERIALISE_CALLBACKS_MAX UINT8_MAX
 
@@ -40,3 +47,9 @@ void serialise_handler_register(serial_ctx_t ctx, struct serial_registry *reg, s
 void serialise_key_value_pairs(serial_ctx_t ctx, void *data);
 void serialise(serial_ctx_t ctx);
 serial_ctx_t serialise_ctx_init(struct serial_ctx *ctx, uint8_t *buffer, size_t buffer_size, void *user_data);
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif /* _BBBLED_SERIALISE_H */
