@@ -32,6 +32,7 @@ static const char *valid_keys_str[] = {
     "red",
     "green",
     "blue",
+    "msg",
 };
 
 
@@ -44,7 +45,7 @@ static const key_t valid_keys_set_rgb[] = {
     SETRGB_BLUE,
 };
 
-static const key_t valid_keys_ack[] = {
+static const key_t valid_keys_ack_nack[] = {
     KEY_MSGNUM,
 };
 
