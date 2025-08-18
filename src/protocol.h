@@ -62,11 +62,13 @@ enum pkt_type {
     PKT_TYPE_NACK,
 };
 
-typedef struct {
+struct parsed_data{
     command_t command;
     struct key_val_pair params[PROTOCOL_MAX_PARAMS];
     size_t num_params;
-} parsed_data_t;
+};
+
+typedef struct parsed_data* parsed_data_t;
 
 /**
  * @brief Packet structure for the protocol. Each packet should include:
@@ -91,15 +93,15 @@ typedef struct protocol_pkt* pkt_t;
 typedef struct k_timer* timer_t;
 typedef void (*timer_cb_t)(timer_t);
 
-typedef struct {
+struct protocol_ctx {
     uint8_t *rx_buf;
     size_t rx_len;
     struct protocol_pkt *to_send;
     timer_cb_t timer_expired;
     uint8_t retry_attempts;
-} protocol_ctx_obj_t;
+};
 
-typedef protocol_ctx_obj_t* protocol_ctx_t;
+typedef struct protocol_ctx* protocol_ctx_t;
 
 
 /**
@@ -120,19 +122,19 @@ size_t serialise_packet(struct protocol_pkt *pkt, uint8_t *dest, size_t dest_siz
 int protocol_ctx_init_pkt(protocol_ctx_t ctx, char* command, struct key_val_pair *params, size_t num_params);
 
 protocol_ctx_t protocol_init(
-    protocol_ctx_obj_t *ctx,
+    protocol_ctx_t ctx,
     uint8_t *buffer,
     size_t buffer_size);
 
-parser_ret_t parse(
+int parse(
     char *str,
     size_t len,
-    parsed_data_t *data,
+    parsed_data_t data,
     uint16_t *msg_num);
 
 void handle_incoming(
     protocol_ctx_t ctx,
-    parsed_data_t *data);
+    parsed_data_t data);
 
 const size_t calc_rq_buf_size(struct protocol_pkt *pkt);
 

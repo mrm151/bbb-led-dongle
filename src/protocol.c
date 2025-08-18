@@ -8,23 +8,22 @@
 
 #include "protocol.h"
 
-#define PKT_SLAB_BLOCK_SIZE sizeof(struct protocol_pkt)
-#define PKT_SLAB_BLOCK_COUNT 12
-#define SLAB_ALIGNMENT 4
-#define PKT_TIMEOUT_MSEC 100
-#define PKT_RINGBUF_LEN 8
-#define RING_BUF_ITEM_SIZE RING_BUF_ITEM_SIZEOF(struct protocol_pkt*)
+#define PKT_SLAB_BLOCK_SIZE         sizeof(struct protocol_pkt)
+#define PKT_SLAB_BLOCK_COUNT        12
+#define SLAB_ALIGNMENT              4
+#define PKT_TIMEOUT_MSEC            100
+#define PKT_RINGBUF_LEN             8
+#define RING_BUF_ITEM_SIZE          RING_BUF_ITEM_SIZEOF(struct protocol_pkt*)
+
+#define PROTOCOL_MSG_IDENTIFIER     "msg"
+#define PROTOCOL_PREAMBLE           "!"
+#define PROTOCOL_KEY_VALUE_SEP      ":"
+#define PROTOCOL_ITEM_SEP           ","
+#define PROTOCOL_CRC                "#"
 
 K_MEM_SLAB_DEFINE(protocol_pkt_slab, PKT_SLAB_BLOCK_SIZE, PKT_SLAB_BLOCK_COUNT, SLAB_ALIGNMENT);
 
-
 LOG_MODULE_REGISTER(bbbled_protocol, LOG_LEVEL_DBG);
-
-static const char* protocol_msg_identifier = "msg";
-static const char *protocol_preamble = "!";
-static const char *protocol_key_value_sep = ":";
-static const char *protocol_item_sep = ",";
-static const char *protocol_crc = "#";
 
 /**
  * @brief Create a new protocol context
@@ -37,7 +36,7 @@ static const char *protocol_crc = "#";
  * @returns An initialised protocol context
  */
 protocol_ctx_t protocol_init(
-    protocol_ctx_obj_t *ctx,
+    protocol_ctx_t ctx,
     uint8_t *buffer,
     size_t buffer_size)
 {
@@ -60,7 +59,7 @@ protocol_ctx_t protocol_init(
  *
  * @return  An ack packet.
  */
-static const struct protocol_pkt* create_ack(const uint16_t msg_num)
+static const pkt_t create_ack(const uint16_t msg_num)
 {
     return protocol_packet_create(COMMAND_ACK, NULL, 0, msg_num);
 }
@@ -70,7 +69,7 @@ static const struct protocol_pkt* create_ack(const uint16_t msg_num)
  *
  * @return  A nack packet.
  */
-static const struct protocol_pkt* create_nack()
+static const pkt_t create_nack()
 {
     return protocol_packet_create(COMMAND_NACK, NULL, 0, -1);
 }
@@ -98,7 +97,7 @@ static uint16_t create_msg_num(void)
 
 //     /*  '!' + "<command>" + ',' */
 //     size_t size =
-//         sizeof(protocol_preamble) +
+//         sizeof(PROTOCOL_PREAMBLE) +
 //         (sizeof(char) * command_len) +
 //         sizeof(uint8_t);
 
@@ -111,7 +110,7 @@ static uint16_t create_msg_num(void)
 //         size += (sizeof(char) * strlen(valuepkt->params[i].value));
 //         size += sizeof(uint8_t); // ','
 //     }
-//     size += (sizeof(char) * strlen(protocol_msg_identifier));
+//     size += (sizeof(char) * strlen(PROTOCOL_MSG_IDENTIFIER));
 //     size += sizeof(uint8_t); // ':'
 //     size += (sizeof(char) * PROTOCOL_MAX_MSG_NUM_CHARS); // worst case msg number length (16-bit decimal as char)
 //     size += (sizeof(char) * 5); // #<CRC:04x>
@@ -144,19 +143,19 @@ size_t serialise_packet(
     struct kv_pair_adapter adapter = {
         .pairs = pkt->params,
         .num_pairs = pkt->num_params,
-        .pair_separator = protocol_key_value_sep,
-        .pair_terminator = protocol_item_sep
+        .pair_separator = PROTOCOL_KEY_VALUE_SEP,
+        .pair_terminator = PROTOCOL_ITEM_SEP
     };
 
     struct serial_registry reg[] = {
-        {.handler = serialise_padding_char,     .user_data = protocol_preamble},
+        {.handler = serialise_padding_char,     .user_data = PROTOCOL_PREAMBLE},
         {.handler = serialise_str,              .user_data = cmd_to_string(pkt->command)},
-        {.handler = serialise_padding_char,     .user_data = protocol_item_sep},
+        {.handler = serialise_padding_char,     .user_data = PROTOCOL_ITEM_SEP},
         {.handler = serialise_key_value_pairs,  .user_data = &adapter},
         {.handler = serialise_str,              .user_data = key_to_string(KEY_MSGNUM)},
-        {.handler = serialise_padding_char,     .user_data = protocol_key_value_sep},
+        {.handler = serialise_padding_char,     .user_data = PROTOCOL_KEY_VALUE_SEP},
         {.handler = serialise_uint16t_dec,      .user_data = &pkt->msg_num},
-        {.handler = serialise_padding_char,     .user_data = protocol_crc},
+        {.handler = serialise_padding_char,     .user_data = PROTOCOL_CRC},
     };
 
     serialise_handler_register(&ctx, reg, ARRAY_SIZE(reg));
@@ -164,7 +163,7 @@ size_t serialise_packet(
     serialise(&ctx);
 
     /* CRC afterwards */
-    uint8_t crc = crc16_ccitt(PROTOCOL_CRC_POLY, ctx.buffer, ctx.bytes_written);
+    crc_t crc = crc16_ccitt(PROTOCOL_CRC_POLY, ctx.buffer, ctx.bytes_written);
     serialise_uint16t_hex(&ctx, &crc);
 
     LOG_INF("Serialised packet, data=%s", dest);
@@ -223,27 +222,27 @@ uint8_t tokeniser(
     char token_array[][PROTOCOL_MAX_TOKEN_LEN])
 {
     uint8_t index;
-    char search_char = protocol_item_sep;
+    char *search_char = PROTOCOL_ITEM_SEP;
     char *start_token;
     char *end_token;
 
     for (index = 0; index < PROTOCOL_MAX_NUM_TOKENS; ++index)
     {
-        if (strchr(str, search_char) == NULL)
+        if (strstr(str, search_char) == NULL)
         {
-            if (strchr(str, protocol_crc) == NULL)
+            if (strstr(str, PROTOCOL_CRC) == NULL)
             {
                 LOG_DBG("reached end of input");
                 break;
             }
             else
             {
-                search_char = protocol_crc;
+                search_char = PROTOCOL_CRC;
             }
         }
 
         start_token = str;
-        end_token = strchr((str), search_char);
+        end_token = strstr((str), search_char);
         size_t token_len = LEN(end_token, start_token);
 
         if (token_len >= PROTOCOL_MAX_TOKEN_LEN)
@@ -258,42 +257,41 @@ uint8_t tokeniser(
         }
 
         /* Consume up to (and including) the next search character */
-        str = strchr(str, search_char);
+        str = strstr(str, search_char);
         str++;
     }
 
     return index;
 }
 
-parser_ret_t parse(
+int parse(
     char *str,
     size_t len,
-    parsed_data_t *data,
+    parsed_data_t data,
     uint16_t *msg_num)
 {
     command_t command = COMMAND_INVALID;
     char token_array[PROTOCOL_MAX_NUM_TOKENS][PROTOCOL_MAX_TOKEN_LEN] = {0};
-    struct key_val_pair pairs[PROTOCOL_MAX_PARAMS];
     uint8_t pair_index = 0;
     uint8_t num_tokens = 0;
     uint8_t invalid_params = 0;
 
     if (str == NULL)
     {
-        return PARSER_INVALID_BYTES;
+        return -1;
     }
 
     char id = *str;
-    if (id != protocol_preamble)
+    if (id != *PROTOCOL_PREAMBLE)
     {
         LOG_WRN("preamble not found");
-        return PARSER_INVALID_PREAMBLE;
+        return -1;
     }
 
     if (verify_crc(str, len))
     {
         LOG_WRN("invalid crc");
-        return PARSER_INVALID_CRC;
+        return -1;
     }
 
     /*  Convert the received bytes into string tokens
@@ -303,35 +301,31 @@ parser_ret_t parse(
     num_tokens = tokeniser((char*) (str + 1), len - 1, token_array);
 
 
-    command = to_enum(token_array[0]);
+    command = cmd_to_enum(token_array[0]);
 
     /*  Check the command is valid */
     if (command == COMMAND_INVALID)
     {
         LOG_ERR("command invalid");
-        return PARSER_INVALID_CMD;
+        return -1;
     }
 
     /*  We have a valid command, now iterate and
         validate the key:value sent with this
         command */
-    for (uint8_t index = 1; index < len; ++index)
+    for (uint8_t index = 1; index < num_tokens; ++index)
     {
         /*  Find the pointer to the separator */
-        char *key_end = strchr(token_array[index], protocol_key_value_sep);
+        char *key_end = strstr(token_array[index], PROTOCOL_KEY_VALUE_SEP);
 
         if (key_end)
         {
             char *val_start;
             char* val_end;
-            char *ptr;
             struct key_val_pair pair;
             size_t key_len = LEN(key_end, token_array[index]);
             char key_str[PROTOCOL_MAX_KEY_LEN];
             char value_str[PROTOCOL_MAX_KEY_LEN];
-            key_t key_enum;
-            value_t value_enum;
-
 
             /*  Copy and null-terminate the value */
             memcpy(key_str, token_array[index], (key_len));
@@ -351,7 +345,7 @@ parser_ret_t parse(
 
             /*  Validate the params and get the msg number
                 if one has been supplied */
-            if (strcmp(value_str, protocol_msg_identifier) == 0)
+            if (strcmp(key_str, PROTOCOL_MSG_IDENTIFIER) == 0)
             {
                 *msg_num = pair.value;
             }
@@ -366,25 +360,28 @@ parser_ret_t parse(
                 invalid_params = 1;
             }
         }
+        else
+        {
+            break;
+        }
     }
     data->command = command;
     data->num_params = pair_index;
 
     if (*msg_num == -1)
     {
-        return PARSER_INVALID_MSG_NUM;
+        return -1;
     }
 
     if (invalid_params)
     {
-        return PARSER_INVALID_PARAMS;
+        return -1;
     }
 
     return PARSER_OK;
 }
 
-
-void remove_packet(protocol_ctx_t ctx, uint16_t msg_num)
+void remove_packet(protocol_ctx_t ctx, const uint16_t msg_num)
 {
     if (ctx->to_send && ctx->to_send->msg_num == msg_num)
     {
@@ -393,7 +390,7 @@ void remove_packet(protocol_ctx_t ctx, uint16_t msg_num)
     }
 }
 
-void queue_packet(protocol_ctx_t ctx, pkt_t pkt)
+void queue_packet(protocol_ctx_t ctx, const pkt_t pkt)
 {
     if (ctx->to_send == NULL)
     {
@@ -401,56 +398,45 @@ void queue_packet(protocol_ctx_t ctx, pkt_t pkt)
     }
 }
 
-/**
- * @brief parse an incoming byte stream
- *
- * @return  A protocol packet if the stream is valid, NULL otherwise
- */
-void handle_incoming(protocol_ctx_t ctx, parsed_data_t *data)
+void mark_packet_for_resend(protocol_ctx_t ctx)
 {
-    char id;
-    struct protocol_pkt *pkt;
-    uint16_t msg_num = -1;
-    parser_ret_t ret;
+    ctx->to_send->resend = true;
+}
 
-    __ASSERT(ctx != NULL, "no context provided");
+pkt_t send_pkt(protocol_ctx_t ctx)
+{
+    return ctx->to_send;
+}
 
-    ret = parse(ctx->rx_buf, ctx->rx_len, data, &msg_num);
+void handle_incoming(
+    protocol_ctx_t ctx,
+    parsed_data_t data)
+{
+    __ASSERT(ctx, "Invalid ctx ptr");
+    __ASSERT(data, "Invalid data ptr");
+    int16_t msg_num = -1;
 
-    switch (ret)
+    int ret = parse((char*) ctx->rx_buf, ctx->rx_len, data, &msg_num);
+    if (ret)
     {
-        case PARSER_OK:
-            switch (data->command)
-            {
-                case COMMAND_ACK:
-                    remove_packet(ctx, msg_num);
-                    break;
-                case COMMAND_NACK:
-                    // Reset the timeout on the current packet but mark it for resend
+        LOG_ERR("Parsing failed");
+        return;
+    }
 
-                    break;
-
-                case COMMAND_SET_RGB:
-                    queue_packet(ctx, create_ack(msg_num));
-                    break;
-                case COMMAND_INVALID:
-                    queue_packet(ctx, create_nack());
-                case NUM_COMMANDS:
-                    __ASSERT(0, "this should not be reached");
-            }
-
+    switch (data->command)
+    {
+        case COMMAND_SET_RGB:
+            remove_packet(ctx, msg_num);
+            queue_packet(ctx, create_ack(msg_num));
             break;
-
-        case PARSER_INVALID_BYTES:
-        case PARSER_INVALID_CMD:
-        case PARSER_INVALID_CRC:
-        case PARSER_INVALID_MSG_NUM:
-        case PARSER_INVALID_PREAMBLE:
-        case PARSER_INVALID_PARAMS:
+        case COMMAND_ACK:
+            remove_packet(ctx, msg_num);
+            break;
+        case COMMAND_NACK:
+            mark_packet_for_resend(ctx);
+            break;
+        case COMMAND_INVALID:
             queue_packet(ctx, create_nack());
-            break;
-        default:
-            __ASSERT(0, "this should not be reached");
             break;
     }
 }
