@@ -120,8 +120,8 @@ ZTEST(serialise_test, kv_pairs)
     struct kv_pair_adapter adapter = {
         .pairs = pairs,
         .num_pairs = 3,
-        .pair_separator = ':',
-        .pair_terminator = ',',
+        .pair_separator = ":",
+        .pair_terminator = ",",
     };
 
     char *expected = "red:255,green:234,blue:123,";
@@ -148,8 +148,8 @@ ZTEST(serialise_test, callbacks)
     struct kv_pair_adapter adapter = {
         .pairs = pairs,
         .num_pairs = 3,
-        .pair_separator = ':',
-        .pair_terminator = ',',
+        .pair_separator = ":",
+        .pair_terminator = ",",
     };
 
     uint16_t dec = 12345;
