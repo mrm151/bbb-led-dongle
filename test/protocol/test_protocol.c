@@ -8,6 +8,16 @@
 
 LOG_MODULE_REGISTER(protocol_test, LOG_LEVEL_DBG);
 
+
+static timer_t test_timer;
+static bool timer_expired = false;
+
+static void timer_expiry(timer_t timer)
+{
+    timer_expired = true;
+}
+
+
 ZTEST(protocol_test, serialise_pkt)
 {
     struct protocol_pkt pkt = {
@@ -41,8 +51,10 @@ ZTEST(protocol_test, parse_pkt)
     zassert_equal(COMMAND_SET_RGB, parsed.command);
     zassert_equal(KEY_RED, parsed.params[0].key);
     zassert_equal(1, parsed.params[0].value);
+
     zassert_equal(KEY_GREEN, parsed.params[1].key);
     zassert_equal(2, parsed.params[1].value);
+
     zassert_equal(KEY_BLUE, parsed.params[2].key);
     zassert_equal(3, parsed.params[2].value);
 }
@@ -77,7 +89,8 @@ ZTEST(protocol_test, handle_incoming_data)
     struct parsed_data parsed = {0};
 
     struct protocol_ctx ctx;
-    protocol_init(&ctx, buffer, ARRAY_SIZE(buffer));
+    timer_t timer;
+    protocol_init(&ctx, buffer, ARRAY_SIZE(buffer), &timer);
 
     handle_incoming(&ctx, &parsed);
 
@@ -94,7 +107,8 @@ ZTEST(protocol_test, handle_incoming_nack)
     struct parsed_data parsed = {0};
 
     struct protocol_ctx ctx;
-    protocol_init(&ctx, buffer, ARRAY_SIZE(buffer));
+    timer_t timer;
+    protocol_init(&ctx, buffer, ARRAY_SIZE(buffer), &timer);
 
     struct protocol_pkt pkt = {
         .command = COMMAND_SET_RGB,
@@ -105,6 +119,22 @@ ZTEST(protocol_test, handle_incoming_nack)
     handle_incoming(&ctx, &parsed);
 
     zassert_true(ctx.to_send->resend);
+}
+
+ZTEST(protocol_test, testing)
+{
+    uint8_t buffer[] = "!et_rgb,green:244,red:0,blue:0,msg:48913#e988";
+    struct parsed_data parsed = {0};
+    timer_expired = false;
+
+    struct protocol_ctx ctx;
+    timer_t timer;
+    protocol_init(&ctx, buffer, ARRAY_SIZE(buffer), &timer);
+
+    handle_incoming(&ctx, &parsed);
+
+    zassert_not_null(ctx.to_send);
+    zassert_equal(COMMAND_NACK, ctx.to_send->command);
 }
 
 ZTEST_SUITE(protocol_test, NULL, NULL, NULL, NULL, NULL);

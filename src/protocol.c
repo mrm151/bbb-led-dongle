@@ -6,15 +6,12 @@
 #include <zephyr/logging/log.h>
 #include <stdlib.h>
 
-#include "timer.h"
 #include "protocol.h"
 
 #define PKT_SLAB_BLOCK_SIZE         sizeof(struct protocol_pkt)
 #define PKT_SLAB_BLOCK_COUNT        12
 #define SLAB_ALIGNMENT              4
 #define PKT_TIMEOUT_MSEC            100
-#define PKT_RINGBUF_LEN             8
-#define RING_BUF_ITEM_SIZE          RING_BUF_ITEM_SIZEOF(struct protocol_pkt*)
 
 #define PROTOCOL_MSG_IDENTIFIER     "msg"
 #define PROTOCOL_PREAMBLE           "!"
@@ -25,20 +22,6 @@
 K_MEM_SLAB_DEFINE(protocol_pkt_slab, PKT_SLAB_BLOCK_SIZE, PKT_SLAB_BLOCK_COUNT, SLAB_ALIGNMENT);
 
 LOG_MODULE_REGISTER(bbbled_protocol, LOG_LEVEL_DBG);
-
-void protocol_init(protocol_ctx_t ctx, uint8_t *buffer, size_t buffer_size)
-{
-    protocol_ctx_t this;
-
-    this = ctx;
-
-    this->rx_buf = buffer;
-    this->rx_len = buffer_size;
-    this->to_send = NULL;
-    this->retry_attempts = PROTOCOL_MAX_MSG_RETRIES;
-
-    return this;
-}
 
 /**
  * @brief   Construct an ACK for the given message number
@@ -244,18 +227,7 @@ static uint8_t tokeniser(char *str, size_t len, char token_array[][PROTOCOL_MAX_
     return index;
 }
 
-/**
- * @brief   parse a string, returning its command and params if valid
- *
- * @param   str     string to parse
- * @param   len     lenth of the string
- * @param   data    data to populate
- * @param   msg_num msg number for the parsed data
- *
- * @retval  -1 if failure
- * @retval  0 if successful
- */
-static int parse(
+int parse(
     char *str,
     size_t len,
     parsed_data_t data,
@@ -376,12 +348,13 @@ static void remove_packet(protocol_ctx_t ctx, const uint16_t msg_num)
 {
     if (ctx->to_send && ctx->to_send->msg_num == msg_num)
     {
+        timer_stop(ctx->resend_timer);
         k_mem_slab_free(&protocol_pkt_slab, ctx->to_send);
         ctx->to_send = NULL;
     }
 }
 
-static inline void queue_packet(protocol_ctx_t ctx, const pkt_t pkt)
+inline void queue_packet(protocol_ctx_t ctx, const pkt_t pkt)
 {
     if (ctx->to_send == NULL)
     {
@@ -396,6 +369,7 @@ static inline void mark_packet_for_resend(protocol_ctx_t ctx)
 
 inline pkt_t send_pkt(protocol_ctx_t ctx)
 {
+    timer_start(ctx->resend_timer, K_MSEC(PKT_TIMEOUT_MSEC), K_MSEC(PKT_TIMEOUT_MSEC));
     return ctx->to_send;
 }
 
@@ -478,4 +452,31 @@ pkt_t protocol_packet_create(
     pkt->resend = false;
 
     return pkt;
+}
+
+static void resend_timer_expiry(timer_t *timer)
+{
+    protocol_ctx_t ctx = (protocol_ctx_t)timer->user_data;
+
+    if (ctx->retry_attempts == PROTOCOL_MAX_MSG_RETRIES)
+    {
+        remove_packet(ctx, ctx->to_send->msg_num);
+    }
+    else
+    {
+        ctx->retry_attempts += 1;
+        ctx->to_send->resend = true;
+    }
+}
+
+void protocol_init(struct protocol_ctx *ctx, uint8_t *buffer, size_t buffer_size, timer_t *timer)
+{
+    protocol_ctx_t this = ctx;
+
+    timer_init(timer, resend_timer_expiry, NULL, this);
+    // this->resend_timer = timer;
+    this->rx_buf = buffer;
+    this->rx_len = buffer_size;
+    this->to_send = NULL;
+    this->retry_attempts = PROTOCOL_MAX_MSG_RETRIES;
 }

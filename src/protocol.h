@@ -7,6 +7,7 @@
 
 #include "commands.h"
 #include "serialise.h"
+#include "timer.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -90,15 +91,14 @@ struct protocol_pkt {
 
 typedef struct protocol_pkt* pkt_t;
 
-typedef struct k_timer* timer_t;
-typedef void (*timer_cb_t)(timer_t);
+typedef void (*timer_cb_t)(timer_t*);
 
 struct protocol_ctx {
     uint8_t *rx_buf;
     size_t rx_len;
     struct protocol_pkt *to_send;
-    timer_cb_t timer_expired;
     uint8_t retry_attempts;
+    timer_t *resend_timer;
 };
 
 typedef struct protocol_ctx* protocol_ctx_t;
@@ -133,24 +133,40 @@ size_t serialise_packet(struct protocol_pkt *pkt, uint8_t *dest, size_t dest_siz
  * @brief Create a new protocol context
  *
  * @param   ctx         :   The empty context object
- * @param   buffer      :   Buffer pointer. Used for storing data received
- *                          over the interface
+ * @param   buffer      :   Buffer pointer. Used for storing data received over the interface
  * @param   buffer_size :   Size of the buffer
- *
+ * @param   timer       :   Pointer to an uninitialised timer
  * @returns An initialised protocol context
  */
 void protocol_init(
     protocol_ctx_t ctx,
     uint8_t *buffer,
-    size_t buffer_size);
+    size_t buffer_size,
+    timer_t *timer);
 
-
+/**
+ * @brief   parse a string, returning its command and params if valid
+ *
+ * @param   str     string to parse
+ * @param   len     lenth of the string
+ * @param   data    data to populate
+ * @param   msg_num msg number for the parsed data
+ *
+ * @retval  -1 if failure
+ * @retval  0 if successful
+ */
+int parse(
+    char *str,
+    size_t len,
+    parsed_data_t data,
+    uint16_t *msg_num);
 
 void handle_incoming(
     protocol_ctx_t ctx,
     parsed_data_t data);
 
-const size_t calc_rq_buf_size(struct protocol_pkt *pkt);
+
+
 
 #ifdef __cplusplus
 }
